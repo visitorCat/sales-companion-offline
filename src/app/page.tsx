@@ -21,6 +21,7 @@ import { SearchScreen } from "@/components/screens/search-screen";
 import { RouteScreen } from "@/components/screens/route-screen";
 import { DeliveryScreen } from "@/components/screens/delivery-screen";
 import { ManagerScreen } from "@/components/screens/manager-screen";
+import { ProductManageScreen } from "@/components/screens/product-manage-screen";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Home() {
@@ -55,6 +56,7 @@ export default function Home() {
       case "route": return <RouteScreen />;
       case "delivery": return <DeliveryScreen />;
       case "manager": return <ManagerScreen />;
+      case "productManage": return <ProductManageScreen />;
       default: return <HomeScreen />;
     }
   };

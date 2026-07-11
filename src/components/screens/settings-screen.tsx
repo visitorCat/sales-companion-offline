@@ -16,7 +16,10 @@ import {
   Globe, Sun, Moon, Monitor, Bell, Database, Lock, LogOut,
   Download, Upload, Building2, ShieldCheck, ChevronRight, Wifi, WifiOff,
   RefreshCw, Trash2, CloudUpload, CloudCheck, Calendar,
+  Route as RouteIcon, Map, MapPin, Plus, ChevronUp, ChevronDown, X, Check,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSyncQueue, processQueue } from "@/store/sync-queue";
@@ -292,6 +295,9 @@ export function SettingsScreen() {
         </Card>
       </section>
 
+      {/* Route Planning — Days / Sectors / Areas editor */}
+      <RoutePlanningSection />
+
       {/* Export by Period (Day / Week / Month) */}
       <ExportByPeriodSection />
 
@@ -495,5 +501,548 @@ function ExportByPeriodSection() {
         </div>
       </Card>
     </section>
+  );
+}
+
+// ============================================================
+//  Route Planning Section — full editor for days, sectors, areas
+//  Uses existing routePlans table + existing sectors/areas tables.
+// ============================================================
+function RoutePlanningSection() {
+  const t = useT();
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <section className="px-4 pt-4">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase mb-2 tap-scale"
+      >
+        <RouteIcon className="h-3.5 w-3.5" /> {t("routePlanning")}
+        <ChevronRight className={cn("h-3.5 w-3.5 ms-auto transition-transform", expanded && "rotate-90 rtl:-rotate-90")} />
+      </button>
+      {expanded && (
+        <div className="space-y-4">
+          <DaysEditor />
+          <SectorsEditor />
+          <AreasManagementSection />
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---- Days Editor ----
+// Day definitions stored in routePlans table: { id, day: "DayName", sectorId, areaIds: [], order }
+function DaysEditor() {
+  const t = useT();
+  const routePlans = useDataStore((s) => s.routePlans) ?? [];
+  const sectors = useDataStore((s) => s.sectors) ?? [];
+  const areas = useDataStore((s) => s.areas) ?? [];
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const sorted = [...routePlans].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+
+  async function handleAdd() {
+    if (!newName.trim()) return;
+    try {
+      const { db, uid } = await import("@/lib/db-dexie");
+      const newDay = { id: uid("rp_"), day: newName.trim(), sectorId: "", areaIds: [] as string[], order: routePlans.length };
+      await db.routePlans.add(newDay);
+      useDataStore.setState({ routePlans: [...routePlans, newDay] });
+      setNewName(""); setAdding(false);
+      toast.success(t("saved"));
+    } catch { toast.error(t("error")); }
+  }
+
+  async function handleRename(id: string, name: string) {
+    try {
+      const { db } = await import("@/lib/db-dexie");
+      await db.routePlans.update(id, { day: name });
+      useDataStore.setState({ routePlans: routePlans.map((rp: any) => rp.id === id ? { ...rp, day: name } : rp) });
+    } catch { toast.error(t("error")); }
+  }
+
+  async function handleAssignSector(id: string, sectorId: string) {
+    try {
+      const { db } = await import("@/lib/db-dexie");
+      await db.routePlans.update(id, { sectorId });
+      useDataStore.setState({ routePlans: routePlans.map((rp: any) => rp.id === id ? { ...rp, sectorId } : rp) });
+    } catch { toast.error(t("error")); }
+  }
+
+  async function handleReorder(id: string, dir: -1 | 1) {
+    const idx = sorted.findIndex((d: any) => d.id === id);
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= sorted.length) return;
+    const reordered = [...sorted];
+    [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
+    const newOrder = reordered.map((d: any, i: number) => ({ ...d, order: i }));
+    useDataStore.setState({ routePlans: newOrder });
+    try {
+      const { db } = await import("@/lib/db-dexie");
+      for (const d of newOrder) await db.routePlans.update(d.id, { order: d.order });
+    } catch { toast.error(t("error")); }
+  }
+
+  async function handleDelete() {
+    if (!deleteId) return;
+    try {
+      const { db } = await import("@/lib/db-dexie");
+      await db.routePlans.delete(deleteId);
+      useDataStore.setState({ routePlans: routePlans.filter((rp: any) => rp.id !== deleteId) });
+      toast.success(t("saved"));
+    } catch { toast.error(t("error")); }
+    setDeleteId(null);
+  }
+
+  return (
+    <Card className="p-3">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm font-semibold flex items-center gap-1.5">
+          <Calendar className="h-4 w-4 text-primary" /> {t("planningDays")}
+        </p>
+        <Button variant="ghost" size="sm" className="h-8 tap-scale text-xs" onClick={() => setAdding(!adding)}>
+          <Plus className="h-3.5 w-3.5" /> {t("addDay")}
+        </Button>
+      </div>
+
+      {adding && (
+        <div className="flex gap-2 mb-2">
+          <Input className="h-9" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t("dayName")}
+            onKeyDown={(e) => e.key === "Enter" && handleAdd()} autoFocus />
+          <Button size="sm" className="h-9 tap-scale" onClick={handleAdd} disabled={!newName.trim()}><Check className="h-4 w-4" /></Button>
+          <Button size="sm" variant="ghost" className="h-9 tap-scale" onClick={() => { setAdding(false); setNewName(""); }}><X className="h-4 w-4" /></Button>
+        </div>
+      )}
+
+      {sorted.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-3">{t("noAreas")}</p>
+      ) : (
+        <div className="space-y-2">
+          {sorted.map((d: any, i: number) => {
+            const assignedSector = sectors.find((s: any) => s.id === d.sectorId);
+            const sectorAreas = assignedSector ? areas.filter((a: any) => a.sectorId === assignedSector.id) : [];
+            return (
+              <div key={d.id} className="rounded-xl bg-muted/40 p-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="flex flex-col">
+                    <button onClick={() => handleReorder(d.id, -1)} disabled={i === 0} className="text-muted-foreground disabled:opacity-30 tap-scale p-0.5"><ChevronUp className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => handleReorder(d.id, 1)} disabled={i === sorted.length - 1} className="text-muted-foreground disabled:opacity-30 tap-scale p-0.5"><ChevronDown className="h-3.5 w-3.5" /></button>
+                  </div>
+                  <InlineEdit value={d.day} onSave={(v) => handleRename(d.id, v)} />
+                  <Select value={d.sectorId || "none"} onValueChange={(v) => handleAssignSector(d.id, v === "none" ? "" : v)}>
+                    <SelectTrigger className="h-8 w-36 text-xs rounded-lg border-0 bg-background"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{t("noSectorAssigned")}</SelectItem>
+                      {sectors.map((s: any) => (<SelectItem key={s.id} value={s.id}>{s.code} — {s.name}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                  <button onClick={() => setDeleteId(d.id)} className="h-8 w-8 rounded-lg bg-rose-500/10 text-rose-600 grid place-items-center tap-scale shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+                </div>
+                {assignedSector && sectorAreas.length > 0 && (
+                  <div className="ps-7 pt-1.5">
+                    <p className="text-[10px] text-muted-foreground mb-1">{t("planningAreas")}:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {sectorAreas.map((a: any) => (
+                        <span key={a.id} className={cn("text-[10px] px-2 py-0.5 rounded-full border", d.areaIds?.includes(a.id) ? "bg-primary text-primary-foreground border-primary" : "border-border")}>{a.name}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <AlertDialog open={!!deleteId} onOpenChange={(v) => !v && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>{t("deleteDayWarn")}</AlertDialogTitle><AlertDialogDescription> </AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">{t("delete")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
+// ---- Sectors + Areas Editor ----
+function SectorsEditor() {
+  const t = useT();
+  const sectors = useDataStore((s) => s.sectors) ?? [];
+  const areas = useDataStore((s) => s.areas) ?? [];
+  const upsertSector = useDataStore((s) => s.upsertSector);
+  const removeSector = useDataStore((s) => s.removeSector);
+  const upsertArea = useDataStore((s) => s.upsertArea);
+  const removeArea = useDataStore((s) => s.removeArea);
+  const setSectors = useDataStore((s) => s.setSectors);
+  const setAreas = useDataStore((s) => s.setAreas);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newCode, setNewCode] = useState("");
+  const [expandedSector, setExpandedSector] = useState<string | null>(null);
+  const [deleteSectorId, setDeleteSectorId] = useState<string | null>(null);
+  const [deleteAreaId, setDeleteAreaId] = useState<string | null>(null);
+  const [addingArea, setAddingArea] = useState<string | null>(null);
+  const [newAreaName, setNewAreaName] = useState("");
+
+  const sortedSectors = [...sectors].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+
+  async function handleAddSector() {
+    if (!newName.trim()) return;
+    try {
+      const { createSector } = await import("@/lib/dexie-data");
+      const s = await createSector({ name: newName.trim(), code: newCode.trim() || `S${sectors.length + 1}` });
+      upsertSector(s); setNewName(""); setNewCode(""); setAdding(false);
+      toast.success(t("saved"));
+    } catch { toast.error(t("error")); }
+  }
+
+  async function handleRenameSector(id: string, name: string) {
+    try {
+      const { updateSector } = await import("@/lib/dexie-data");
+      await updateSector(id, { name });
+      const existing = sectors.find((s: any) => s.id === id);
+      if (existing) upsertSector({ ...existing, name });
+    } catch { toast.error(t("error")); }
+  }
+
+  async function handleReorderSectors(id: string, dir: -1 | 1) {
+    const idx = sortedSectors.findIndex((s: any) => s.id === id);
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= sortedSectors.length) return;
+    const reordered = [...sortedSectors];
+    [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
+    const newOrder = reordered.map((s: any, i: number) => ({ ...s, order: i }));
+    setSectors(newOrder);
+    try { const { reorderSectors } = await import("@/lib/dexie-data"); await reorderSectors(newOrder.map((s: any) => s.id)); } catch { toast.error(t("error")); }
+  }
+
+  async function handleDeleteSector() {
+    if (!deleteSectorId) return;
+    try {
+      const { deleteSector } = await import("@/lib/dexie-data");
+      await deleteSector(deleteSectorId);
+      removeSector(deleteSectorId);
+      toast.success(t("saved"));
+    } catch { toast.error(t("error")); }
+    setDeleteSectorId(null);
+  }
+
+  async function handleAddArea(sectorId: string) {
+    if (!newAreaName.trim()) return;
+    try {
+      const { createArea } = await import("@/lib/dexie-data");
+      const a = await createArea({ sectorId, name: newAreaName.trim() });
+      upsertArea(a); setNewAreaName(""); setAddingArea(null);
+      toast.success(t("saved"));
+    } catch { toast.error(t("error")); }
+  }
+
+  async function handleRenameArea(id: string, name: string) {
+    try {
+      const { updateArea } = await import("@/lib/dexie-data");
+      await updateArea(id, { name });
+      const existing = areas.find((a: any) => a.id === id);
+      if (existing) upsertArea({ ...existing, name });
+    } catch { toast.error(t("error")); }
+  }
+
+  async function handleReorderAreas(sectorId: string, id: string, dir: -1 | 1) {
+    const sectorAreas = areas.filter((a: any) => a.sectorId === sectorId).sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+    const idx = sectorAreas.findIndex((a: any) => a.id === id);
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= sectorAreas.length) return;
+    const reordered = [...sectorAreas];
+    [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
+    const newOrder = reordered.map((a: any, i: number) => ({ ...a, order: i }));
+    const otherAreas = areas.filter((a: any) => a.sectorId !== sectorId);
+    setAreas([...otherAreas, ...newOrder]);
+    try { const { reorderAreas } = await import("@/lib/dexie-data"); await reorderAreas(sectorId, newOrder.map((a: any) => a.id)); } catch { toast.error(t("error")); }
+  }
+
+  async function handleDeleteArea() {
+    if (!deleteAreaId) return;
+    try {
+      const { deleteArea } = await import("@/lib/dexie-data");
+      await deleteArea(deleteAreaId);
+      removeArea(deleteAreaId);
+      toast.success(t("saved"));
+    } catch { toast.error(t("error")); }
+    setDeleteAreaId(null);
+  }
+
+  return (
+    <Card className="p-3">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm font-semibold flex items-center gap-1.5">
+          <MapPin className="h-4 w-4 text-primary" /> {t("planningSectors")}
+        </p>
+        <Button variant="ghost" size="sm" className="h-8 tap-scale text-xs" onClick={() => setAdding(!adding)}>
+          <Plus className="h-3.5 w-3.5" /> {t("addSector")}
+        </Button>
+      </div>
+
+      {adding && (
+        <div className="flex gap-2 mb-2">
+          <Input className="h-9 w-20" value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder={t("sectorCode")} maxLength={6} />
+          <Input className="h-9 flex-1" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t("sectorName")}
+            onKeyDown={(e) => e.key === "Enter" && handleAddSector()} autoFocus />
+          <Button size="sm" className="h-9 tap-scale" onClick={handleAddSector} disabled={!newName.trim()}><Check className="h-4 w-4" /></Button>
+          <Button size="sm" variant="ghost" className="h-9 tap-scale" onClick={() => { setAdding(false); setNewName(""); setNewCode(""); }}><X className="h-4 w-4" /></Button>
+        </div>
+      )}
+
+      {sortedSectors.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-3">{t("noAreas")}</p>
+      ) : (
+        <div className="space-y-1.5">
+          {sortedSectors.map((s: any, i: number) => {
+            const sectorAreas = areas.filter((a: any) => a.sectorId === s.id).sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+            const isExpanded = expandedSector === s.id;
+            return (
+              <div key={s.id} className="rounded-xl bg-muted/40 overflow-hidden">
+                <div className="flex items-center gap-1.5 p-2">
+                  <div className="flex flex-col">
+                    <button onClick={() => handleReorderSectors(s.id, -1)} disabled={i === 0} className="text-muted-foreground disabled:opacity-30 tap-scale p-0.5"><ChevronUp className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => handleReorderSectors(s.id, 1)} disabled={i === sortedSectors.length - 1} className="text-muted-foreground disabled:opacity-30 tap-scale p-0.5"><ChevronDown className="h-3.5 w-3.5" /></button>
+                  </div>
+                  <Badge className="bg-primary/10 text-primary border-0 text-[10px] shrink-0">{s.code}</Badge>
+                  <InlineEdit value={s.name} onSave={(v) => handleRenameSector(s.id, v)} />
+                  <button onClick={() => setExpandedSector(isExpanded ? null : s.id)} className="h-7 px-2 rounded-lg bg-background text-xs tap-scale shrink-0">{sectorAreas.length} {t("planningAreas")}</button>
+                  <button onClick={() => setDeleteSectorId(s.id)} className="h-8 w-8 rounded-lg bg-rose-500/10 text-rose-600 grid place-items-center tap-scale shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+                </div>
+
+                {isExpanded && (
+                  <div className="px-2 pb-2 pt-1 border-t border-border/50">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-[11px] font-semibold text-muted-foreground uppercase">{t("planningAreas")}</p>
+                      <Button variant="ghost" size="sm" className="h-7 tap-scale text-[11px]" onClick={() => setAddingArea(addingArea === s.id ? null : s.id)}><Plus className="h-3 w-3" /> {t("addArea")}</Button>
+                    </div>
+
+                    {addingArea === s.id && (
+                      <div className="flex gap-2 mb-1.5">
+                        <Input className="h-8 text-xs" value={newAreaName} onChange={(e) => setNewAreaName(e.target.value)} placeholder={t("areaName")}
+                          onKeyDown={(e) => e.key === "Enter" && handleAddArea(s.id)} autoFocus />
+                        <Button size="sm" className="h-8 tap-scale" onClick={() => handleAddArea(s.id)} disabled={!newAreaName.trim()}><Check className="h-3.5 w-3.5" /></Button>
+                        <Button size="sm" variant="ghost" className="h-8 tap-scale" onClick={() => { setAddingArea(null); setNewAreaName(""); }}><X className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    )}
+
+                    {sectorAreas.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground text-center py-2">{t("noAreas")}</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {sectorAreas.map((a: any, ai: number) => (
+                          <div key={a.id} className="flex items-center gap-1.5 p-1.5 rounded-lg bg-background/60">
+                            <div className="flex flex-col">
+                              <button onClick={() => handleReorderAreas(s.id, a.id, -1)} disabled={ai === 0} className="text-muted-foreground disabled:opacity-30 tap-scale p-0.5"><ChevronUp className="h-3 w-3" /></button>
+                              <button onClick={() => handleReorderAreas(s.id, a.id, 1)} disabled={ai === sectorAreas.length - 1} className="text-muted-foreground disabled:opacity-30 tap-scale p-0.5"><ChevronDown className="h-3 w-3" /></button>
+                            </div>
+                            <InlineEdit value={a.name} onSave={(v) => handleRenameArea(a.id, v)} small />
+                            <button onClick={() => setDeleteAreaId(a.id)} className="h-7 w-7 rounded-lg bg-rose-500/10 text-rose-600 grid place-items-center tap-scale shrink-0"><Trash2 className="h-3 w-3" /></button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <AlertDialog open={!!deleteSectorId} onOpenChange={(v) => !v && setDeleteSectorId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>{t("deleteSectorWarn")}</AlertDialogTitle><AlertDialogDescription> </AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteSector} className="bg-destructive text-destructive-foreground">{t("delete")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteAreaId} onOpenChange={(v) => !v && setDeleteAreaId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>{t("deleteAreaWarn")}</AlertDialogTitle><AlertDialogDescription> </AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteArea} className="bg-destructive text-destructive-foreground">{t("delete")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
+// ---- Dedicated Areas Management Section ----
+// Shows ALL sectors, each with its areas listed and an Add Area button.
+function AreasManagementSection() {
+  const t = useT();
+  const sectors = useDataStore((s) => s.sectors) ?? [];
+  const areas = useDataStore((s) => s.areas) ?? [];
+  const upsertArea = useDataStore((s) => s.upsertArea);
+  const removeArea = useDataStore((s) => s.removeArea);
+  const setAreas = useDataStore((s) => s.setAreas);
+  const [addingSector, setAddingSector] = useState<string | null>(null);
+  const [newAreaName, setNewAreaName] = useState("");
+  const [deleteAreaId, setDeleteAreaId] = useState<string | null>(null);
+
+  const sortedSectors = [...sectors].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+
+  function getSectorAreas(sectorId: string) {
+    return areas.filter((a: any) => a.sectorId === sectorId).sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+  }
+
+  async function handleAddArea(sectorId: string) {
+    if (!newAreaName.trim()) return;
+    try {
+      const { createArea } = await import("@/lib/dexie-data");
+      const a = await createArea({ sectorId, name: newAreaName.trim() });
+      upsertArea(a); setNewAreaName(""); setAddingSector(null);
+      toast.success(t("saved"));
+    } catch { toast.error(t("error")); }
+  }
+
+  async function handleRenameArea(id: string, name: string) {
+    try {
+      const { updateArea } = await import("@/lib/dexie-data");
+      await updateArea(id, { name });
+      const existing = areas.find((a: any) => a.id === id);
+      if (existing) upsertArea({ ...existing, name });
+    } catch { toast.error(t("error")); }
+  }
+
+  async function handleReorderArea(sectorId: string, id: string, dir: -1 | 1) {
+    const sectorAreas = getSectorAreas(sectorId);
+    const idx = sectorAreas.findIndex((a: any) => a.id === id);
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= sectorAreas.length) return;
+    const reordered = [...sectorAreas];
+    [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
+    const newOrder = reordered.map((a: any, i: number) => ({ ...a, order: i }));
+    const otherAreas = areas.filter((a: any) => a.sectorId !== sectorId);
+    setAreas([...otherAreas, ...newOrder]);
+    try { const { reorderAreas } = await import("@/lib/dexie-data"); await reorderAreas(sectorId, newOrder.map((a: any) => a.id)); } catch { toast.error(t("error")); }
+  }
+
+  async function handleDeleteArea() {
+    if (!deleteAreaId) return;
+    try {
+      const { deleteArea } = await import("@/lib/dexie-data");
+      await deleteArea(deleteAreaId);
+      removeArea(deleteAreaId);
+      toast.success(t("saved"));
+    } catch { toast.error(t("error")); }
+    setDeleteAreaId(null);
+  }
+
+  if (sortedSectors.length === 0) {
+    return (
+      <Card className="p-3">
+        <p className="text-sm font-semibold flex items-center gap-1.5 mb-1"><MapPin className="h-4 w-4 text-primary" /> {t("planningAreas")}</p>
+        <p className="text-xs text-muted-foreground text-center py-3">{t("noAreas")}</p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-3">
+      <p className="text-sm font-semibold flex items-center gap-1.5 mb-2"><MapPin className="h-4 w-4 text-primary" /> {t("planningAreas")}</p>
+      <div className="space-y-3">
+        {sortedSectors.map((s: any) => {
+          const sectorAreas = getSectorAreas(s.id);
+          return (
+            <div key={s.id} className="rounded-xl bg-muted/40 p-2">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Badge className="bg-primary/10 text-primary border-0 text-[10px] shrink-0">{s.code}</Badge>
+                <span className="text-sm font-medium truncate">{s.name}</span>
+              </div>
+
+              {sectorAreas.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground text-center py-1.5">{t("noAreas")}</p>
+              ) : (
+                <div className="space-y-1 mb-1.5">
+                  {sectorAreas.map((a: any, i: number) => (
+                    <div key={a.id} className="flex items-center gap-1.5 p-1.5 rounded-lg bg-background/60">
+                      <div className="flex flex-col shrink-0">
+                        <button onClick={() => handleReorderArea(s.id, a.id, -1)} disabled={i === 0} className="text-muted-foreground disabled:opacity-30 tap-scale p-0.5" aria-label={t("moveUp")}><ChevronUp className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => handleReorderArea(s.id, a.id, 1)} disabled={i === sectorAreas.length - 1} className="text-muted-foreground disabled:opacity-30 tap-scale p-0.5" aria-label={t("moveDown")}><ChevronDown className="h-3.5 w-3.5" /></button>
+                      </div>
+                      <InlineEdit value={a.name} onSave={(v) => handleRenameArea(a.id, v)} small />
+                      <button onClick={() => setDeleteAreaId(a.id)} className="h-7 w-7 rounded-lg bg-rose-500/10 text-rose-600 grid place-items-center tap-scale shrink-0" aria-label={t("delete")}><Trash2 className="h-3 w-3" /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {addingSector === s.id ? (
+                <div className="flex gap-1.5 mt-1">
+                  <Input className="h-8 text-xs flex-1" value={newAreaName} onChange={(e) => setNewAreaName(e.target.value)} placeholder={t("areaName")}
+                    onKeyDown={(e) => e.key === "Enter" && handleAddArea(s.id)} autoFocus />
+                  <Button size="sm" className="h-8 tap-scale px-2" onClick={() => handleAddArea(s.id)} disabled={!newAreaName.trim()}><Check className="h-3.5 w-3.5" /></Button>
+                  <Button size="sm" variant="ghost" className="h-8 tap-scale px-2" onClick={() => { setAddingSector(null); setNewAreaName(""); }}><X className="h-3.5 w-3.5" /></Button>
+                </div>
+              ) : (
+                <button onClick={() => { setAddingSector(s.id); setNewAreaName(""); }}
+                  className="w-full flex items-center justify-center gap-1 py-1.5 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors tap-scale">
+                  <Plus className="h-3 w-3" /> {t("addArea")}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <AlertDialog open={!!deleteAreaId} onOpenChange={(v) => !v && setDeleteAreaId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>{t("deleteAreaWarn")}</AlertDialogTitle><AlertDialogDescription> </AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteArea} className="bg-destructive text-destructive-foreground">{t("delete")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
+// ---- Inline Edit helper (uses span to avoid nested-button HTML issues) ----
+function InlineEdit({ value, onSave, small }: { value: string; onSave: (v: string) => void; small?: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value);
+
+  if (editing) {
+    return (
+      <input
+        className={cn("flex-1 min-w-0 bg-background border border-primary rounded-lg px-2 outline-none", small ? "h-7 text-xs" : "h-8 text-sm")}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={() => { if (val.trim() && val.trim() !== value) onSave(val.trim()); else setVal(value); setEditing(false); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { if (val.trim() && val.trim() !== value) onSave(val.trim()); else setVal(value); setEditing(false); }
+          if (e.key === "Escape") { setVal(value); setEditing(false); }
+        }}
+        onClick={(e) => e.stopPropagation()}
+        autoFocus
+      />
+    );
+  }
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={(e) => { e.stopPropagation(); setVal(value); setEditing(true); }}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setVal(value); setEditing(true); } }}
+      className={cn("flex-1 min-w-0 truncate hover:text-primary transition-colors cursor-text", small ? "text-xs" : "text-sm font-medium")}
+    >
+      {value}
+    </span>
   );
 }

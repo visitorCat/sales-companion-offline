@@ -8,7 +8,7 @@ export type ScreenName =
   | "home" | "customers" | "customer" | "products" | "order"
   | "visit" | "visitResult" | "map" | "dashboard" | "reports"
   | "settings" | "endOfDay" | "search" | "newCustomer" | "route"
-  | "delivery" | "manager";
+  | "delivery" | "manager" | "productManage";
 
 export interface CartLine {
   productId: string;
