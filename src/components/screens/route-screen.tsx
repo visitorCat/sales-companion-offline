@@ -5,14 +5,15 @@ import { useAppStore } from "@/store/app-store";
 import { useDataStore } from "@/store/data-store";
 import { useT } from "@/hooks/use-t";
 import { computeStats, dueTodayCustomers } from "@/lib/stats";
-import { customerSegment, type SegmentId } from "@/lib/segmentation";
+import { customerSegment } from "@/lib/segmentation";
 import { ScreenHeader, EmptyState } from "@/components/shared/ui";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Route as RouteIcon, Check, SkipForward, Clock, Navigation,
-  ChevronRight, Flag, Play, MapPin, X, Sparkles, Calendar,
+  ChevronRight, Flag, Play, MapPin, X, Sparkles, Calendar, ChevronLeft,
+  ShoppingBag, Lock, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
@@ -27,54 +28,36 @@ export function RouteScreen() {
   const route = useAppStore((s) => s.route);
   const { customers, areas, sectors, orders, visits, objective, rep, routePlans } = useDataStore();
 
-  const [selectedSector, setSelectedSector] = useState<string>("all");
+  const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
 
   const stats = useMemo(
     () => computeStats(orders, visits, customers, objective, rep?.monthlyTargetCartons ?? 100),
     [orders, visits, customers, objective, rep]
   );
 
-  // Days from routePlans that have the selected sector assigned
-  const sectorDays = useMemo(() => {
-    const plans = (routePlans ?? []).filter((rp: any) => rp.sectorId && (selectedSector === "all" || rp.sectorId === selectedSector));
-    return plans.sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
-  }, [routePlans, selectedSector]);
+  // All route plan days (sorted by order)
+  const allDays = useMemo(() => {
+    return [...(routePlans ?? [])].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+  }, [routePlans]);
 
-  const remaining = customers
-    .filter((c) => c.active && !stats.visitedTodayIds.has(c.id))
-    .filter((c) => selectedSector === "all" || c.sectorId === selectedSector)
-    .sort((a, b) => a.visitOrder - b.visitOrder);
+  // The selected day's sector
+  const selectedDay = allDays.find((d: any) => d.id === selectedDayId);
+  const selectedSector = selectedDay ? sectors.find((s) => s.id === selectedDay.sectorId) : null;
 
-  // Smart route: prioritize due-today + at-risk + VIP customers first
+  // Customers in the selected day's sector (not visited today)
+  const dayCustomers = useMemo(() => {
+    if (!selectedSector) return [];
+    return customers
+      .filter((c) => c.active && !stats.visitedTodayIds.has(c.id))
+      .filter((c) => c.sectorId === selectedSector.id)
+      .sort((a, b) => a.visitOrder - b.visitOrder);
+  }, [customers, selectedSector, stats.visitedTodayIds]);
+
   const dueToday = useMemo(
     () => dueTodayCustomers(customers, orders, stats.visitedTodayIds),
     [customers, orders, stats.visitedTodayIds]
   );
   const dueTodayIds = new Set(dueToday.map((d) => d.customer.id));
-
-  const optimizedRoute = useMemo(() => {
-    // Priority 1: due today (sorted by daysOverdue desc)
-    // Priority 2: at-risk segment
-    // Priority 3: VIP segment
-    // Priority 4: rest by visitOrder
-    const priority: { customer: typeof remaining[0]; priority: number }[] = remaining.map((c) => {
-      const seg = customerSegment(c, orders);
-      let priority = 4;
-      if (dueTodayIds.has(c.id)) priority = 1;
-      else if (seg === "at_risk") priority = 2;
-      else if (seg === "vip") priority = 3;
-      return { customer: c, priority };
-    });
-    return priority
-      .sort((a, b) => {
-        if (a.priority !== b.priority) return a.priority - b.priority;
-        return a.customer.visitOrder - b.customer.visitOrder;
-      })
-      .map((p) => p.customer);
-  }, [remaining, orders, dueTodayIds]);
-
-  const [useOptimized, setUseOptimized] = useState(true);
-  const routeCustomers = useOptimized ? optimizedRoute : remaining;
 
   const currentId = route.customerIds[route.index] ?? null;
   const current = customers.find((c) => c.id === currentId);
@@ -82,7 +65,6 @@ export function RouteScreen() {
   const remainingCount = Math.max(0, route.customerIds.length - route.index);
   const estMin = remainingCount * 8;
 
-  // human-friendly duration: "6 h 30 min" or "45 min"
   function formatDuration(mins: number): string {
     if (mins <= 0) return "0";
     const h = Math.floor(mins / 60);
@@ -92,10 +74,15 @@ export function RouteScreen() {
     return `${h}h${String(m).padStart(2, "0")}`;
   }
 
-  const routeList = route.customerIds.map((id, i) => customers.find((c) => c.id === id)).filter(Boolean);
+  const routeList = route.customerIds.map((id) => customers.find((c) => c.id === id)).filter(Boolean);
 
   function startNow() {
-    const ids = routeCustomers.map((c) => c.id);
+    const ids = dayCustomers.map((c) => c.id);
+    if (ids.length === 0) return;
+    startRoute(ids);
+  }
+
+  function startWithSelected(ids: string[]) {
     if (ids.length === 0) return;
     startRoute(ids);
   }
@@ -105,120 +92,119 @@ export function RouteScreen() {
       <ScreenHeader title={t("route")} />
 
       {route.startedAt === null ? (
-        // Not started
+        // Not started — Day selector flow
         <div className="px-4 pt-3 space-y-4">
-          <Card className="p-4 text-center bg-gradient-to-br from-primary/10 to-transparent border-primary/20">
-            <RouteIcon className="h-10 w-10 mx-auto text-primary mb-2" />
-            <h2 className="text-base font-semibold">{t("todayRoute")}</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {remaining.length} {t("remainingCustomers")}
+          {/* Step 1: Select a Day */}
+          <Card className="p-4">
+            <p className="text-sm font-semibold mb-3 flex items-center gap-1.5">
+              <Calendar className="h-4 w-4 text-primary" /> {t("planningDays")}
             </p>
-            <div className="grid grid-cols-3 gap-2 mt-4">
-              <RouteStat label={t("remaining")} value={remaining.length} color="text-rose-600" />
-              <RouteStat label={t("visitedCount")} value={stats.visitedTodayIds.size} color="text-emerald-600" />
-              <RouteStat label="min" value={formatDuration(estMin)} color="text-primary" />
-            </div>
-          </Card>
 
-          {remaining.length === 0 ? (
-            <EmptyState icon={<Check className="h-6 w-6" />} title={t("noMoreCustomers")} />
-          ) : (
-            <>
-              {/* Sector selector */}
-              {sectors.length > 0 && (
-                <Card className="p-3">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase mb-2 flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5" /> {t("sector")}
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
+            {allDays.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-4">{t("noAreas")}</p>
+            ) : (
+              <div className="space-y-2">
+                {allDays.map((d: any) => {
+                  const sec = sectors.find((s) => s.id === d.sectorId);
+                  const isSel = selectedDayId === d.id;
+                  return (
                     <button
-                      onClick={() => setSelectedSector("all")}
+                      key={d.id}
+                      onClick={() => setSelectedDayId(isSel ? null : d.id)}
                       className={cn(
-                        "px-3 h-8 rounded-lg text-xs font-medium border transition-colors tap-scale",
-                        selectedSector === "all" ? "bg-primary text-primary-foreground border-primary" : "border-border"
+                        "w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-colors tap-scale text-start",
+                        isSel ? "border-primary bg-primary/5" : "border-border"
                       )}
                     >
-                      {t("all")}
-                    </button>
-                    {sectors.map((s) => (
-                      <button
-                        key={s.id}
-                        onClick={() => setSelectedSector(s.id)}
-                        className={cn(
-                          "px-3 h-8 rounded-lg text-xs font-medium border transition-colors tap-scale",
-                          selectedSector === s.id ? "bg-primary text-primary-foreground border-primary" : "border-border"
-                        )}
-                      >
-                        {s.code}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Days assigned to this sector (from Route Planning) */}
-                  {sectorDays.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-border/50">
-                      <p className="text-[11px] font-semibold text-muted-foreground uppercase mb-1.5 flex items-center gap-1">
-                        <Calendar className="h-3 w-3" /> {t("planningDays")}
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {sectorDays.map((d: any) => {
-                          const sec = sectors.find((s) => s.id === d.sectorId);
-                          return (
-                            <Badge key={d.id} className="bg-primary/10 text-primary border-0 text-[10px]">
-                              {d.day}{sec ? ` (${sec.code})` : ""}
-                            </Badge>
-                          );
-                        })}
+                      <div className={cn("h-10 w-10 rounded-xl grid place-items-center shrink-0", isSel ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>
+                        <Calendar className="h-5 w-5" />
                       </div>
-                    </div>
-                  )}
-                </Card>
-              )}
-
-              {/* Optimize toggle */}
-              {dueToday.length > 0 && (
-                <div className="flex items-center justify-between p-2 rounded-xl bg-amber-50/50 dark:bg-amber-950/10 border border-amber-300/30">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-amber-500" />
-                    <div>
-                      <p className="text-xs font-semibold">{t("smartRoute")}</p>
-                      <p className="text-[10px] text-muted-foreground">{dueToday.length} {t("dueToday")}</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setUseOptimized(!useOptimized)}
-                    className={cn("relative h-6 w-11 rounded-full transition-colors", useOptimized ? "bg-primary" : "bg-muted")}
-                  >
-                    <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", useOptimized ? "translate-x-5" : "translate-x-0.5")} />
-                  </button>
-                </div>
-              )}
-              <Button className="w-full h-14 rounded-2xl text-base font-semibold tap-scale" onClick={startNow}>
-                <Play className="h-5 w-5 me-2" /> {t("startRoute")}
-              </Button>
-              <div className="space-y-2">
-                {routeCustomers.slice(0, 10).map((c, i) => {
-                  const area = areas.find((a) => a.id === c.areaId);
-                  const sector = sectors.find((s) => s.id === c.sectorId);
-                  const isDue = dueTodayIds.has(c.id);
-                  const seg = customerSegment(c, orders);
-                  return (
-                    <Card key={c.id} className={cn("p-3 flex items-center gap-3", isDue && "border-amber-300/60 bg-amber-50/30 dark:bg-amber-950/10")}>
-                      <span className={cn("h-7 w-7 rounded-full text-xs font-bold grid place-items-center shrink-0", isDue ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground")}>
-                        {i + 1}
-                      </span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{c.shopName}</p>
-                        <p className="text-xs text-muted-foreground truncate">{sector?.code} • {area?.name}</p>
+                        <p className="text-sm font-semibold truncate">{d.day}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {sec ? `${sec.code} — ${sec.name}` : t("noSectorAssigned")}
+                        </p>
                       </div>
-                      {isDue && <Badge className="bg-amber-500/15 text-amber-600 border-0 text-[9px]">{t("dueToday")}</Badge>}
-                      <Button variant="ghost" size="sm" className="tap-scale" onClick={() => go("customer", { customerId: c.id, returnTo: "route" })}>
-                        <ChevronRight className="h-4 w-4 rtl:rotate-180" />
-                      </Button>
-                    </Card>
+                      {isSel && <Check className="h-5 w-5 text-primary shrink-0" />}
+                    </button>
                   );
                 })}
               </div>
+            )}
+          </Card>
+
+          {/* Step 2: Show customers in selected day's sector */}
+          {selectedDay && selectedSector && (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+              <Card className="p-4 text-center bg-gradient-to-br from-primary/10 to-transparent border-primary/20">
+                <MapPin className="h-8 w-8 mx-auto text-primary mb-1" />
+                <h2 className="text-base font-semibold">{selectedSector.code} — {selectedSector.name}</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {dayCustomers.length} {t("remainingCustomers")}
+                </p>
+                <div className="grid grid-cols-3 gap-2 mt-3">
+                  <RouteStat label={t("remaining")} value={dayCustomers.length} color="text-rose-600" />
+                  <RouteStat label={t("visitedCount")} value={stats.visitedTodayIds.size} color="text-emerald-600" />
+                  <RouteStat label="min" value={formatDuration(dayCustomers.length * 8)} color="text-primary" />
+                </div>
+              </Card>
+
+              {dayCustomers.length === 0 ? (
+                <EmptyState icon={<Check className="h-6 w-6" />} title={t("noMoreCustomers")} />
+              ) : (
+                <>
+                  <Button className="w-full h-14 rounded-2xl text-base font-semibold tap-scale" onClick={startNow}>
+                    <Play className="h-5 w-5 me-2" /> {t("startRoute")}
+                  </Button>
+
+                  {/* Customer list with manual selection */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase px-1 mt-2">
+                      {t("customers")} — {t("selectManually")}
+                    </p>
+                    {dayCustomers.map((c, i) => {
+                      const area = areas.find((a) => a.id === c.areaId);
+                      const isDue = dueTodayIds.has(c.id);
+                      return (
+                        <Card key={c.id} className={cn("p-3 flex items-center gap-3", isDue && "border-amber-300/60 bg-amber-50/30 dark:bg-amber-950/10")}>
+                          <span className={cn("h-7 w-7 rounded-full text-xs font-bold grid place-items-center shrink-0", isDue ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground")}>
+                            {i + 1}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{c.shopName}</p>
+                            <p className="text-xs text-muted-foreground truncate">{selectedSector.code} • {area?.name}</p>
+                          </div>
+                          {isDue && <Badge className="bg-amber-500/15 text-amber-600 border-0 text-[9px]">{t("dueToday")}</Badge>}
+                          <Button variant="outline" size="sm" className="h-8 tap-scale text-xs" onClick={() => startWithSelected([c.id])}>
+                            <Play className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="tap-scale" onClick={() => go("customer", { customerId: c.id, returnTo: "route" })}>
+                            <ChevronRight className="h-4 w-4 rtl:rotate-180" />
+                          </Button>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </motion.div>
+          )}
+
+          {/* Fallback: if no days configured, show all customers */}
+          {allDays.length === 0 && (
+            <>
+              <Card className="p-4 text-center bg-gradient-to-br from-primary/10 to-transparent border-primary/20">
+                <RouteIcon className="h-10 w-10 mx-auto text-primary mb-2" />
+                <h2 className="text-base font-semibold">{t("todayRoute")}</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {customers.filter((c) => c.active && !stats.visitedTodayIds.has(c.id)).length} {t("remainingCustomers")}
+                </p>
+              </Card>
+              {customers.filter((c) => c.active && !stats.visitedTodayIds.has(c.id)).length > 0 && (
+                <Button className="w-full h-14 rounded-2xl text-base font-semibold tap-scale" onClick={() => startWithSelected(customers.filter((c) => c.active && !stats.visitedTodayIds.has(c.id)).map((c) => c.id))}>
+                  <Play className="h-5 w-5 me-2" /> {t("startRoute")}
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -271,6 +257,7 @@ export function RouteScreen() {
                   {sectors.find((s) => s.id === current.sectorId)?.code} • {areas.find((a) => a.id === current.areaId)?.name}
                 </p>
 
+                {/* Visit options: Order, Closed, Follow-up */}
                 <div className="grid grid-cols-3 gap-2 mt-4">
                   <Button
                     className="h-12 rounded-xl tap-scale font-semibold"
@@ -283,7 +270,7 @@ export function RouteScreen() {
                     className="h-12 rounded-xl tap-scale"
                     onClick={() => go("order", { customerId: current.id, returnTo: "route" })}
                   >
-                    <RouteIcon className="h-4 w-4" />
+                    <ShoppingBag className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="outline"
@@ -326,7 +313,7 @@ export function RouteScreen() {
             </Card>
           )}
 
-          {/* Upcoming list */}
+          {/* Upcoming list — clickable for manual selection */}
           {routeList.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase mb-2 px-1">{t("route")}</p>
@@ -367,7 +354,7 @@ export function RouteScreen() {
   );
 }
 
-function RouteStat({ label, value, color }: { label: string; value: number; color: string }) {
+function RouteStat({ label, value, color }: { label: string; value: number | string; color: string }) {
   return (
     <div className="rounded-xl bg-card border p-2 text-center">
       <p className={cn("text-xl font-bold tabular-nums", color)}>{value}</p>

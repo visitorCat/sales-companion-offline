@@ -1,12 +1,13 @@
-import { db, uid, hashPin, verifyPin, type Rep, type Customer, type Order, type OrderItem, type Visit, type Note, type Product, type ScheduledVisit, type Delivery } from "./db-dexie";
+import { db, uid, hashPin, verifyPin, type Rep, type Customer, type Order, type OrderItem, type Visit, type Note, type Product, type ScheduledVisit, type Delivery, type RoutePlan } from "./db-dexie";
 
-export interface SyncData { rep: Rep | null; allReps: Rep[]; sectors: any[]; areas: any[]; categories: any[]; products: Product[]; customers: Customer[]; orders: Order[]; visits: Visit[]; notes: Note[]; promotions: any[]; objective: any; scheduledVisits: any[]; deliveries: any[]; prefs: Record<string, any[]>; }
+export interface SyncData { rep: Rep | null; allReps: Rep[]; sectors: any[]; areas: any[]; categories: any[]; products: Product[]; customers: Customer[]; orders: Order[]; visits: Visit[]; notes: Note[]; promotions: any[]; objective: any; scheduledVisits: any[]; deliveries: any[]; prefs: Record<string, any[]>; routePlans: RoutePlan[]; }
 
 export async function loadAllData(repId?: string): Promise<SyncData> {
-  const [reps, sectors, areas, categories, products, allCust, allOrd, visits, notes, promos, objs, sVisits, dels, prefs] = await Promise.all([
+  const [reps, sectors, areas, categories, products, allCust, allOrd, visits, notes, promos, objs, sVisits, dels, prefs, routePlans] = await Promise.all([
     db.reps.toArray(), db.sectors.toArray(), db.areas.toArray(), db.categories.toArray(), db.products.toArray(),
     db.customers.toArray(), db.orders.toArray(), db.visits.toArray(), db.notes.toArray(),
     db.promotions.toArray(), db.objectives.toArray(), db.scheduledVisits.filter(v=>!v.done).toArray(), db.deliveries.toArray(), db.prefs.toArray(),
+    db.routePlans.toArray().catch(() => [] as RoutePlan[]),
   ]);
   const customers = repId ? allCust.filter(c=>c.repId===repId) : allCust;
   const cIds = new Set(customers.map(c=>c.id));
@@ -17,7 +18,7 @@ export async function loadAllData(repId?: string): Promise<SyncData> {
   const pm: Record<string, any[]> = {}; for (const p of prefs) { if(!pm[p.customerId]) pm[p.customerId]=[]; pm[p.customerId].push(p); }
   const deliveries = dels.map(d => { const o = allOrd.find(x=>x.id===d.orderId); const c = o?allCust.find(x=>x.id===o.customerId):null; return { ...d, customerName: c?.shopName??"—", customerPhone: c?.phone??"", totalCartons: o?.totalCartons??0, totalAmount: o?.totalAmount??0 }; });
   const activePromos = promos.filter((p:any)=>p.active);
-  return { rep, allReps: reps, sectors, areas, categories, products: products.sort((a,b)=>a.order-b.order), customers: customers.sort((a,b)=>a.visitOrder-b.visitOrder), orders: orders.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)), visits: visits.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)), notes: notes.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)), promotions: activePromos, objective, scheduledVisits: sVisits, deliveries, prefs: pm };
+  return { rep, allReps: reps, sectors, areas, categories, products: products.sort((a,b)=>a.order-b.order), customers: customers.sort((a,b)=>a.visitOrder-b.visitOrder), orders: orders.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)), visits: visits.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)), notes: notes.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)), promotions: activePromos, objective, scheduledVisits: sVisits, deliveries, prefs: pm, routePlans: routePlans.sort((a,b)=>(a.order??0)-(b.order??0)) };
 }
 
 export async function loginWithEmailPassword(email: string, password: string): Promise<Rep | null> {
@@ -70,3 +71,38 @@ export async function updateScheduledVisit(id: string, data: any): Promise<void>
 export async function deleteScheduledVisit(id: string): Promise<void> { await db.scheduledVisits.delete(id); }
 export async function createDelivery(data: any): Promise<Delivery> { const d: Delivery = { id: uid("del_"), orderId: data.orderId, status: "PENDING", driverName: data.driverName??null, driverPhone: data.driverPhone??null, notes: data.notes??null, deliveredAt: null, createdAt: new Date().toISOString() }; await db.deliveries.add(d); return d; }
 export async function updateDelivery(id: string, data: any): Promise<void> { const u: any = { ...data }; if (data.status === "DELIVERED" && !data.deliveredAt) u.deliveredAt = new Date().toISOString(); await db.deliveries.update(id, u); }
+
+// ===== Sector / Area CRUD (uses existing tables) =====
+export async function createSector(data: { name: string; code: string }): Promise<any> {
+  const count = await db.sectors.count();
+  const s = { id: uid("sec_"), name: data.name, code: data.code, order: count };
+  await db.sectors.add(s);
+  return s;
+}
+export async function updateSector(id: string, data: any): Promise<void> {
+  await db.sectors.update(id, data);
+}
+export async function deleteSector(id: string): Promise<void> {
+  await db.areas.where("sectorId").equals(id).delete();
+  await db.routePlans.where("sectorId").equals(id).delete().catch(() => {});
+  await db.sectors.delete(id);
+}
+export async function reorderSectors(ids: string[]): Promise<void> {
+  for (let i = 0; i < ids.length; i++) await db.sectors.update(ids[i], { order: i });
+}
+
+export async function createArea(data: { sectorId: string; name: string }): Promise<any> {
+  const count = await db.areas.where("sectorId").equals(data.sectorId).count();
+  const a = { id: uid("area_"), sectorId: data.sectorId, name: data.name, order: count };
+  await db.areas.add(a);
+  return a;
+}
+export async function updateArea(id: string, data: any): Promise<void> {
+  await db.areas.update(id, data);
+}
+export async function deleteArea(id: string): Promise<void> {
+  await db.areas.delete(id);
+}
+export async function reorderAreas(sectorId: string, ids: string[]): Promise<void> {
+  for (let i = 0; i < ids.length; i++) await db.areas.update(ids[i], { order: i });
+}

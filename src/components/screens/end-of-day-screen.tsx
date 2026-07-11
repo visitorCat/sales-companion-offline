@@ -76,6 +76,14 @@ export function EndOfDayScreen() {
     go("home", {});
   }
 
+  function goToExport() {
+    // Stay on the End of Day screen — just scroll to the export section
+    const exportSection = document.querySelector("[data-export-section]");
+    if (exportSection) {
+      exportSection.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+
   return (
     <div className="min-h-dynamic pb-4">
       <ScreenHeader title={t("endOfDayTitle")} subtitle={formatDate(new Date(), lang)} />
@@ -195,10 +203,15 @@ export function EndOfDayScreen() {
       </section>
 
       {/* Daily Orders Export */}
-      <DailyOrdersExport />
+      <div data-export-section>
+        <DailyOrdersExport />
+      </div>
 
       {/* Action */}
-      <section className="px-4 pt-6">
+      <section className="px-4 pt-6 space-y-3">
+        <Button variant="outline" className="w-full h-12 rounded-2xl tap-scale font-semibold" onClick={goToExport}>
+          <Download className="h-5 w-5 me-2" /> {t("exportDailyOrders")}
+        </Button>
         <Button className="w-full h-14 rounded-2xl text-base font-semibold tap-scale" onClick={finish}>
           <Check className="h-5 w-5 me-2" /> {t("done")}
         </Button>

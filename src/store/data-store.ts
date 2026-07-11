@@ -41,6 +41,14 @@ export interface DataState {
 
   setCustomerPrefs: (customerId: string, prefs: CustomerPrefT[]) => void;
   upsertProduct: (p: ProductT) => void;
+  removeProduct: (id: string) => void;
+
+  upsertSector: (s: SectorT) => void;
+  removeSector: (id: string) => void;
+  upsertArea: (a: AreaT) => void;
+  removeArea: (id: string) => void;
+  setSectors: (sectors: SectorT[]) => void;
+  setAreas: (areas: AreaT[]) => void;
 
   markSynced: () => void;
   reset: () => void;
@@ -107,6 +115,36 @@ export const useDataStore = create<DataState>()(
               : [p, ...s.products],
           };
         }),
+      removeProduct: (id) =>
+        set((s) => ({ products: s.products.filter((p) => p.id !== id) })),
+
+      upsertSector: (sec) =>
+        set((s) => {
+          const exists = s.sectors.some((x) => x.id === sec.id);
+          return {
+            sectors: exists
+              ? s.sectors.map((x) => (x.id === sec.id ? sec : x))
+              : [...s.sectors, sec],
+          };
+        }),
+      removeSector: (id) =>
+        set((s) => ({
+          sectors: s.sectors.filter((x) => x.id !== id),
+          areas: s.areas.filter((a) => a.sectorId !== id),
+        })),
+      upsertArea: (a) =>
+        set((s) => {
+          const exists = s.areas.some((x) => x.id === a.id);
+          return {
+            areas: exists
+              ? s.areas.map((x) => (x.id === a.id ? a : x))
+              : [...s.areas, a],
+          };
+        }),
+      removeArea: (id) =>
+        set((s) => ({ areas: s.areas.filter((x) => x.id !== id) })),
+      setSectors: (sectors) => set({ sectors }),
+      setAreas: (areas) => set({ areas }),
 
       markSynced: () => set({ lastSyncedAt: new Date().toISOString() }),
       reset: () =>

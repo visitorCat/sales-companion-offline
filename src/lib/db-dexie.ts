@@ -15,6 +15,7 @@ export interface Objective { id: string; repId: string; month: string; targetCar
 export interface ScheduledVisit { id: string; customerId: string; repId: string | null; date: string; time: string | null; note: string | null; done: boolean; createdAt: string; }
 export interface Delivery { id: string; orderId: string; status: string; driverName: string | null; driverPhone: string | null; notes: string | null; deliveredAt: string | null; createdAt: string; }
 export interface CustomerProductPref { id: string; customerId: string; productId: string; timesOrdered: number; lastOrderedAt: string | null; }
+export interface RoutePlan { id: string; day: string; sectorId: string; areaIds: string[]; order: number; }
 
 class SalesDB extends Dexie {
   reps!: Table<Rep, string>; sectors!: Table<Sector, string>; areas!: Table<Area, string>;
@@ -23,6 +24,7 @@ class SalesDB extends Dexie {
   notes!: Table<Note, string>; promotions!: Table<Promotion, string>;
   objectives!: Table<Objective, string>; scheduledVisits!: Table<ScheduledVisit, string>;
   deliveries!: Table<Delivery, string>; prefs!: Table<CustomerProductPref, string>;
+  routePlans!: Table<RoutePlan, string>;
   constructor() {
     super("SalesCompanionDB");
     this.version(1).stores({
@@ -33,6 +35,10 @@ class SalesDB extends Dexie {
       notes: "id, customerId, type, createdAt", promotions: "id, productId, active",
       objectives: "id, repId, month", scheduledVisits: "id, customerId, date, done",
       deliveries: "id, orderId, status", prefs: "id, customerId, productId",
+    });
+    // v2: add routePlans table for Route Planning editor (days/sectors/areas)
+    this.version(2).stores({
+      routePlans: "id, day, sectorId, order",
     });
   }
 }

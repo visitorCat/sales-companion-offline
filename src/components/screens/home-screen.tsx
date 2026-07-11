@@ -69,14 +69,7 @@ export function HomeScreen() {
   );
 
   function handleStartRoute() {
-    const ids = remainingCustomers
-      .sort((a, b) => a.visitOrder - b.visitOrder)
-      .map((c) => c.id);
-    if (ids.length === 0) {
-      go("route", {});
-      return;
-    }
-    startRoute(ids);
+    // Navigate to route screen to let user pick a day first
     go("route", {});
   }
 

@@ -220,7 +220,7 @@ export function VisitScreen() {
       )}
 
       {/* Footer */}
-      <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t p-3 pb-safe">
+      <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t p-3 pb-safe space-y-2">
         {step === "result" ? (
           <Button
             className="w-full h-12 rounded-xl font-semibold tap-scale"
@@ -230,19 +230,31 @@ export function VisitScreen() {
             {t("next")} <ChevronRight className="h-4 w-4 ms-1 rtl:rotate-180" />
           </Button>
         ) : (
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1 h-12 rounded-xl tap-scale" onClick={() => back()}>
-              {t("cancel")}
-            </Button>
-            <Button
-              className="flex-[2] h-12 rounded-xl font-semibold tap-scale"
-              disabled={saving || (needsObjection(result!) && !objection)}
-              onClick={() => finish(false)}
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 me-1" />}
-              {t("finishVisit")}
-            </Button>
-          </div>
+          <>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 h-12 rounded-xl tap-scale" onClick={() => back()}>
+                {t("cancel")}
+              </Button>
+              <Button
+                className="flex-[2] h-12 rounded-xl font-semibold tap-scale"
+                disabled={saving || (needsObjection(result!) && !objection)}
+                onClick={() => finish(false)}
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 me-1" />}
+                {t("finishVisit")}
+              </Button>
+            </div>
+            {/* Next customer button — visible when in a route */}
+            {inRoute && (
+              <Button
+                variant="secondary"
+                className="w-full h-11 rounded-xl tap-scale font-medium"
+                onClick={() => { nextInRoute(); go("route", {}); }}
+              >
+                <ChevronRight className="h-4 w-4 me-1 rtl:rotate-180" /> {t("nextCustomer")}
+              </Button>
+            )}
+          </>
         )}
       </div>
     </div>
