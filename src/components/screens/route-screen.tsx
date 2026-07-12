@@ -15,6 +15,7 @@ import {
   ChevronRight, Flag, Play, MapPin, X, Sparkles, Calendar, ChevronLeft,
   ShoppingBag, Lock, RefreshCw,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 
@@ -26,9 +27,37 @@ export function RouteScreen() {
   const skipInRoute = useAppStore((s) => s.skipInRoute);
   const stopRoute = useAppStore((s) => s.stopRoute);
   const route = useAppStore((s) => s.route);
-  const { customers, areas, sectors, orders, visits, objective, rep, routePlans } = useDataStore();
+  const { customers, areas, sectors, orders, visits, objective, rep, routePlans, addVisit, upsertCustomer } = useDataStore();
 
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
+
+  // Quick visit: save a CLOSED visit and go to next customer
+  async function quickVisitNoOrder(customerId: string) {
+    const customer = customers.find((c) => c.id === customerId);
+    if (!customer) return;
+    const tempId = `local-${Date.now()}`;
+    const visit = {
+      id: tempId,
+      customerId,
+      repId: rep?.id ?? "local",
+      result: "CLOSED",
+      objection: "SHOP_CLOSED",
+      notes: null,
+      durationSec: 0,
+      createdAt: new Date().toISOString(),
+    };
+    addVisit(visit);
+    upsertCustomer({ ...customer, lastVisitAt: visit.createdAt });
+    try {
+      const { createVisit } = await import("@/lib/dexie-data");
+      const created = await createVisit({ customerId, repId: rep?.id ?? "local", result: "CLOSED", objection: "SHOP_CLOSED", notes: null, durationSec: 0 });
+      const ds = useDataStore.getState();
+      useDataStore.setState({ visits: ds.visits.map((v) => (v.id === tempId ? created : v)) });
+    } catch { /* keep local */ }
+    toast.success(t("visitSaved"));
+    nextInRoute();
+    go("route", {});
+  }
 
   const stats = useMemo(
     () => computeStats(orders, visits, customers, objective, rep?.monthlyTargetCartons ?? 100),
@@ -257,40 +286,33 @@ export function RouteScreen() {
                   {sectors.find((s) => s.id === current.sectorId)?.code} • {areas.find((a) => a.id === current.areaId)?.name}
                 </p>
 
-                {/* Visit options: Order, Closed, Follow-up */}
-                <div className="grid grid-cols-3 gap-2 mt-4">
+                {/* Visit options: Visit (→ order directly), No Order (closed/absent), Navigate */}
+                <div className="grid grid-cols-2 gap-2 mt-4">
                   <Button
-                    className="h-12 rounded-xl tap-scale font-semibold"
-                    onClick={() => go("visit", { customerId: current.id, returnTo: "route" })}
+                    className="h-14 rounded-xl tap-scale font-semibold"
+                    onClick={() => go("order", { customerId: current.id, returnTo: "route", fromVisit: true })}
                   >
-                    <Play className="h-4 w-4 me-1" /> {t("visit")}
+                    <Play className="h-5 w-5 me-2" /> {t("visit")}
                   </Button>
                   <Button
                     variant="outline"
-                    className="h-12 rounded-xl tap-scale"
-                    onClick={() => go("order", { customerId: current.id, returnTo: "route" })}
+                    className="h-14 rounded-xl tap-scale"
+                    onClick={() => quickVisitNoOrder(current.id)}
                   >
-                    <ShoppingBag className="h-4 w-4" />
+                    <Lock className="h-5 w-4 me-2" /> {t("closed")}
                   </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-2">
                   <Button
                     variant="outline"
-                    className="h-12 rounded-xl tap-scale"
+                    className="h-10 rounded-xl tap-scale text-xs"
                     onClick={() => {
                       if (current.lat && current.lng) {
                         window.open(`https://www.google.com/maps/dir/?api=1&destination=${current.lat},${current.lng}`, "_blank");
                       }
                     }}
                   >
-                    <Navigation className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <Button
-                    variant="secondary"
-                    className="h-10 rounded-xl tap-scale text-xs"
-                    onClick={() => { skipInRoute(); }}
-                  >
-                    <SkipForward className="h-4 w-4 me-1" /> {t("skipped")}
+                    <Navigation className="h-4 w-4 me-1" /> {t("navigate")}
                   </Button>
                   <Button
                     variant="ghost"

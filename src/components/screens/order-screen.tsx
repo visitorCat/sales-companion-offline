@@ -38,7 +38,7 @@ export function OrderScreen() {
   const updateCartQty = useAppStore((s) => s.updateCartQty);
   const removeCartLine = useAppStore((s) => s.removeCartLine);
   const clearCart = useAppStore((s) => s.clearCart);
-  const { customers, products, orders, prefs, promotions, addOrder, upsertCustomer, setCustomerPrefs, rep } = useDataStore();
+  const { customers, products, orders, prefs, promotions, addOrder, upsertCustomer, setCustomerPrefs, rep, addVisit } = useDataStore();
 
   const customerId = params.customerId as string;
   const customer = customers.find((c) => c.id === customerId);
@@ -246,8 +246,32 @@ export function OrderScreen() {
     // navigate after success overlay shows
     setTimeout(() => {
       if (fromVisit) {
-        // Go back to visit screen with orderDone flag
-        go("visit", { customerId, returnTo: "route", orderDone: true });
+        // Save visit as ORDER_CREATED, then go to next customer in route
+        const visitTempId = `local-visit-${Date.now()}`;
+        const visit = {
+          id: visitTempId,
+          customerId,
+          repId: rep?.id ?? "local",
+          result: "ORDER_CREATED" as const,
+          objection: null,
+          notes: null,
+          durationSec: 0,
+          createdAt: new Date().toISOString(),
+        };
+        addVisit(visit);
+        upsertCustomer({ ...customer, lastVisitAt: visit.createdAt });
+        try {
+          import("@/lib/dexie-data").then(({ createVisit }) => {
+            createVisit({ customerId, repId: rep?.id ?? "local", result: "ORDER_CREATED", objection: null, notes: null, durationSec: 0 }).then((created) => {
+              const ds = useDataStore.getState();
+              useDataStore.setState({ visits: ds.visits.map((v) => (v.id === visitTempId ? created : v)) });
+            });
+          });
+        } catch { /* keep local */ }
+        // Move to next customer in route
+        const { nextInRoute } = useAppStore.getState();
+        nextInRoute();
+        go("route", {});
       } else {
         const returnTo = (params.returnTo as string) ?? "customer";
         go(returnTo as any, { customerId });
