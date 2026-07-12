@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Search, Plus, Minus, ShoppingCart, Check, Repeat,
-  Sparkles, Clock, Star, Package, Loader2, Trash2, Tag, ScanLine,
+  Sparkles, Clock, Star, Package, Loader2, Trash2, Tag, ScanLine, Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -23,8 +23,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { SuccessOverlay } from "@/components/shared/success-overlay";
 import { BarcodeScannerDialog } from "@/components/shared/barcode-scanner";
 import type { CartLine } from "@/store/app-store";
-
-const STEPS = [0.5, 1, 2, 3];
 
 export function OrderScreen() {
   const t = useT();
@@ -44,9 +42,12 @@ export function OrderScreen() {
 
   const customerId = params.customerId as string;
   const customer = customers.find((c) => c.id === customerId);
+  const fromVisit = (params.fromVisit as boolean) ?? false;
+  // Track unit type per product: "carton" or "palette"
+  const [unitTypes, setUnitTypes] = useState<Record<string, "carton" | "palette">>({});
 
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<"suggested" | "recent" | "favorites" | "all">("suggested");
+  const [tab, setTab] = useState<"suggested" | "recent" | "favorites" | "all">("all");
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
@@ -63,7 +64,6 @@ export function OrderScreen() {
         toast.error(t("outOfStock"));
         return;
       }
-      // switch to "all" tab so the product is visible, then add to cart
       setTab("all");
       setQuery("");
       addCartLine({ productId: product.id, qty: 1, unitPrice: product.sellingPrice });
@@ -132,6 +132,21 @@ export function OrderScreen() {
     }
   }
 
+  // Manual quantity input handler
+  function handleQtyInput(pid: string, unitPrice: number, value: string) {
+    const num = parseFloat(value);
+    if (isNaN(num) || num < 0) {
+      if (value === "") removeCartLine(pid);
+      return;
+    }
+    setQty(pid, unitPrice, num);
+  }
+
+  // Toggle unit type between carton and palette
+  function toggleUnit(pid: string) {
+    setUnitTypes(prev => ({ ...prev, [pid]: prev[pid] === "palette" ? "carton" : "palette" }));
+  }
+
   function repeatLastOrder() {
     if (!lastOrderItems.length) {
       toast.error(t("noOrders"));
@@ -151,7 +166,6 @@ export function OrderScreen() {
 
   const totalCartons = cart.reduce((s, c) => s + c.qty, 0);
   const grossAmount = cart.reduce((s, c) => s + c.qty * c.unitPrice, 0);
-  // compute promo discounts across cart
   const promoLines = cart
     .map((c) => {
       const promo = findPromoForProduct(promotions, c.productId);
@@ -161,17 +175,14 @@ export function OrderScreen() {
     })
     .filter(Boolean) as { line: CartLine; promo: NonNullable<ReturnType<typeof findPromoForProduct>>; applied: NonNullable<ReturnType<typeof computePromo>> }[];
   const totalDiscount = promoLines.reduce((s, p) => s + p.applied.discount, 0);
-  // Segment-based bonus discount (auto-applied for VIP/At-risk/New/Inactive customers)
   const customerSegmentId = customer ? customerSegment(customer, orders) : "occasional";
   const segBonus = customer ? segmentBonusDiscount(customerSegmentId, grossAmount - totalDiscount) : null;
   const segBonusDiscount = segBonus?.discount ?? 0;
   const totalAmount = Math.max(0, grossAmount - totalDiscount - segBonusDiscount);
 
-  // Frequently bought together: when cart has items, suggest products co-ordered with cart items
   const cartProductIds = new Set(cart.map((c) => c.productId));
   const fbtSuggestions = useMemo(() => {
     if (cart.length === 0) return [];
-    // Aggregate affinity across all cart products
     const scoreMap: Record<string, number> = {};
     for (const line of cart) {
       const aff = productAffinity(line.productId, orders, products);
@@ -213,7 +224,6 @@ export function OrderScreen() {
       items,
     };
     addOrder(order);
-    // update customer lastOrderAt + prefs locally
     upsertCustomer({ ...customer, lastOrderAt: order.createdAt });
     const newPrefs = [...customerPrefs];
     for (const it of items) {
@@ -235,8 +245,13 @@ export function OrderScreen() {
     setSubmitting(false);
     // navigate after success overlay shows
     setTimeout(() => {
-      const returnTo = (params.returnTo as string) ?? "customer";
-      go(returnTo as any, { customerId });
+      if (fromVisit) {
+        // Go back to visit screen with orderDone flag
+        go("visit", { customerId, returnTo: "route", orderDone: true });
+      } else {
+        const returnTo = (params.returnTo as string) ?? "customer";
+        go(returnTo as any, { customerId });
+      }
     }, 1100);
   }
 
@@ -313,7 +328,7 @@ export function OrderScreen() {
         </Button>
       </div>
 
-      {/* Frequently bought together — shows when cart has items */}
+      {/* Frequently bought together */}
       {fbtSuggestions.length > 0 && (
         <div className="px-4 pt-3">
           <p className="text-xs font-semibold text-amber-600 mb-2 flex items-center gap-1">
@@ -340,20 +355,19 @@ export function OrderScreen() {
         </div>
       )}
 
-      {/* Product grid */}
-      <div className="flex-1 px-4 pt-3 grid grid-cols-2 gap-3 pb-64">
+      {/* Product grid — with manual quantity input + palette/carton toggle */}
+      <div className="flex-1 px-4 pt-3 grid grid-cols-1 gap-3 pb-64">
         {filtered.length === 0 ? (
-          <div className="col-span-2">
-            <EmptyState icon={<Package className="h-6 w-6" />} title={t("noProducts")} />
-          </div>
+          <EmptyState icon={<Package className="h-6 w-6" />} title={t("noProducts")} />
         ) : (
           filtered.map((p) => {
             const qty = cartQty(p.id);
             const cat = useDataStore.getState().categories.find((c) => c.id === p.categoryId);
             const promo = findPromoForProduct(promotions, p.id);
             const applied = promo && qty > 0 ? computePromo(promo, qty, p.sellingPrice) : null;
+            const unitType = unitTypes[p.id] ?? "carton";
             return (
-              <Card key={p.id} className={cn("p-3 flex flex-col relative", qty > 0 && "ring-2 ring-primary", promo && "ring-1 ring-amber-400/50")}>
+              <Card key={p.id} className={cn("p-3 flex items-center gap-3 relative", qty > 0 && "ring-2 ring-primary", promo && "ring-1 ring-amber-400/50")}>
                 {qty > 0 && (
                   <span className="absolute -top-2 -end-2 h-6 min-w-6 px-1.5 rounded-full bg-primary text-primary-foreground text-xs font-bold grid place-items-center z-10">
                     {qty}
@@ -364,46 +378,61 @@ export function OrderScreen() {
                     <Tag className="h-2.5 w-2.5" /> {t("promotion")}
                   </span>
                 )}
-                <div className="aspect-square rounded-xl bg-gradient-to-br from-muted to-muted/50 grid place-items-center mb-2">
-                  <Package className="h-8 w-8 text-muted-foreground/60" />
+                <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-muted to-muted/50 grid place-items-center shrink-0">
+                  <Package className="h-7 w-7 text-muted-foreground/60" />
                 </div>
-                <p className="text-sm font-medium leading-tight line-clamp-2 min-h-[2.5rem]">{p.name}</p>
-                <p className="text-[11px] text-muted-foreground">{cat?.name}</p>
-                <div className="flex items-center justify-between mt-1">
-                  <span className="text-sm font-bold text-primary">{formatCurrency(p.sellingPrice, lang)}</span>
-                </div>
-                {promo && (
-                  <p className="text-[10px] text-amber-600 font-medium mt-0.5 leading-tight">{promo.name}</p>
-                )}
-                {applied && applied.discount > 0 && (
-                  <p className="text-[10px] text-emerald-600 font-semibold mt-0.5">
-                    −{formatCurrency(applied.discount, lang)}
-                  </p>
-                )}
-                {/* quick add steps */}
-                {qty === 0 ? (
-                  <div className="grid grid-cols-4 gap-1 mt-2">
-                    {STEPS.map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => setQty(p.id, p.sellingPrice, s)}
-                        className="h-7 rounded-lg bg-primary/10 text-primary text-xs font-bold tap-scale hover:bg-primary/20"
-                      >
-                        +{s}
-                      </button>
-                    ))}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium leading-tight">{p.name}</p>
+                  <p className="text-[11px] text-muted-foreground">{cat?.name}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-sm font-bold text-primary">{formatCurrency(p.sellingPrice, lang)}</span>
+                    {applied && applied.discount > 0 && (
+                      <span className="text-[10px] text-emerald-600 font-semibold">−{formatCurrency(applied.discount, lang)}</span>
+                    )}
                   </div>
-                ) : (
-                  <div className="flex items-center justify-between mt-2 bg-primary/10 rounded-lg p-1">
-                    <button onClick={() => setQty(p.id, p.sellingPrice, qty - 0.5)} className="h-7 w-7 rounded-md bg-card grid place-items-center tap-scale">
+                  {promo && <p className="text-[10px] text-amber-600 font-medium mt-0.5 leading-tight">{promo.name}</p>}
+                </div>
+
+                {/* Right side: unit toggle + manual quantity input */}
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  {/* Palette/Carton toggle */}
+                  <button
+                    onClick={() => toggleUnit(p.id)}
+                    className={cn(
+                      "h-7 px-2 rounded-lg text-[10px] font-bold border-2 transition-colors tap-scale flex items-center gap-1",
+                      unitType === "palette" ? "border-violet-500 bg-violet-500/10 text-violet-600" : "border-border bg-muted/50 text-muted-foreground"
+                    )}
+                  >
+                    <Layers className="h-3 w-3" />
+                    {unitType === "palette" ? "Palette" : "Carton"}
+                  </button>
+
+                  {/* Manual quantity input */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setQty(p.id, p.sellingPrice, Math.max(0, qty - 1))}
+                      className="h-8 w-8 rounded-lg bg-muted grid place-items-center tap-scale shrink-0"
+                    >
                       <Minus className="h-3.5 w-3.5" />
                     </button>
-                    <span className="text-sm font-bold text-primary tabular-nums">{qty}</span>
-                    <button onClick={() => setQty(p.id, p.sellingPrice, qty + 0.5)} className="h-7 w-7 rounded-md bg-card grid place-items-center tap-scale">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={qty > 0 ? qty : ""}
+                      onChange={(e) => handleQtyInput(p.id, p.sellingPrice, e.target.value)}
+                      placeholder="0"
+                      className="w-14 h-8 text-center text-sm font-bold rounded-lg border border-border bg-card outline-none focus:border-primary tabular-nums"
+                      min="0"
+                      step="0.5"
+                    />
+                    <button
+                      onClick={() => setQty(p.id, p.sellingPrice, qty + 1)}
+                      className="h-8 w-8 rounded-lg bg-primary/10 text-primary grid place-items-center tap-scale shrink-0"
+                    >
                       <Plus className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                )}
+                </div>
               </Card>
             );
           })

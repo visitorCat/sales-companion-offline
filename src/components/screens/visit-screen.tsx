@@ -53,6 +53,7 @@ export function VisitScreen() {
 
   const customerId = params.customerId as string;
   const customer = customers.find((c) => c.id === customerId);
+  const orderDone = (params.orderDone as boolean) ?? false;
 
   const [step, setStep] = useState<"result" | "details">("result");
   const [result, setResult] = useState<VisitResult | null>(null);
@@ -72,15 +73,16 @@ export function VisitScreen() {
 
   function pickResult(r: VisitResult) {
     setResult(r);
-    if (needsObjection(r)) {
-      setStep("details");
-    } else {
-      // immediate finish path for order_created / info_collected
-      setStep("details");
-    }
+    setStep("details");
   }
 
-  async function finish(createOrder = false) {
+  // Navigate to order screen WITHOUT saving visit yet
+  function goToOrder() {
+    go("order", { customerId, returnTo: "visit", fromVisit: true });
+  }
+
+  // Save visit and move to next customer
+  async function finishVisit() {
     if (!result || !customer) return;
     if (needsObjection(result) && !objection) {
       toast.error(t("objectionReason"));
@@ -109,10 +111,6 @@ export function VisitScreen() {
     setSaving(false);
     toast.success(t("visitSaved"));
 
-    if (createOrder) {
-      go("order", { customerId, returnTo: inRoute ? "route" : "customer" });
-      return;
-    }
     if (inRoute) {
       nextInRoute();
       go("route", {});
@@ -127,12 +125,12 @@ export function VisitScreen() {
 
       {/* Steps indicator */}
       <div className="px-4 pt-3 flex items-center gap-2">
-        <StepDot n={1} active={step === "result"} done={step === "details"} label={t("visitResult")} />
-        <div className={cn("h-0.5 flex-1 rounded", step === "details" ? "bg-primary" : "bg-muted")} />
-        <StepDot n={2} active={step === "details"} done={false} label={t("notes")} />
+        <StepDot n={1} active={step === "result" && !orderDone} done={step === "details" || orderDone} label={t("visitResult")} />
+        <div className={cn("h-0.5 flex-1 rounded", step === "details" || orderDone ? "bg-primary" : "bg-muted")} />
+        <StepDot n={2} active={step === "details" && !orderDone} done={orderDone} label={t("notes")} />
       </div>
 
-      {step === "result" && (
+      {step === "result" && !orderDone && (
         <div className="flex-1 px-4 pt-4 space-y-2">
           <p className="text-sm font-semibold text-muted-foreground mb-2">{t("visitResult")}</p>
           {results.map((r) => {
@@ -158,7 +156,7 @@ export function VisitScreen() {
         </div>
       )}
 
-      {step === "details" && (
+      {step === "details" && !orderDone && (
         <div className="flex-1 px-4 pt-4 space-y-4">
           {/* Selected result */}
           <Card className="p-3 flex items-center gap-2">
@@ -201,7 +199,7 @@ export function VisitScreen() {
             />
           </div>
 
-          {/* Quick order CTA if order created */}
+          {/* Create Order button — replaces the old "order created" CTA */}
           {result === "ORDER_CREATED" && (
             <Card className="p-4 bg-primary/5 border-primary/30">
               <div className="flex items-center gap-3">
@@ -210,8 +208,8 @@ export function VisitScreen() {
                   <p className="text-sm font-semibold">{t("createOrder")}</p>
                   <p className="text-xs text-muted-foreground">{t("quickOrder")}</p>
                 </div>
-                <Button size="sm" onClick={() => finish(true)}>
-                  <ShoppingBag className="h-4 w-4 me-1" /> {t("order")}
+                <Button size="sm" onClick={goToOrder}>
+                  <ShoppingBag className="h-4 w-4 me-1" /> {t("createOrder")}
                 </Button>
               </div>
             </Card>
@@ -219,9 +217,31 @@ export function VisitScreen() {
         </div>
       )}
 
+      {/* After order is done — show End Visit + Next Customer */}
+      {orderDone && (
+        <div className="flex-1 px-4 pt-4 space-y-4">
+          <Card className="p-6 text-center bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-500/30">
+            <Check className="h-12 w-12 mx-auto text-emerald-500 mb-2" />
+            <p className="text-base font-semibold">{t("orderConfirmed")}</p>
+            <p className="text-sm text-muted-foreground mt-1">{t("finishVisit")}</p>
+          </Card>
+        </div>
+      )}
+
       {/* Footer */}
       <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t p-3 pb-safe space-y-2">
-        {step === "result" ? (
+        {orderDone ? (
+          // After order: End Visit + Next Customer
+          <Button
+            className="w-full h-12 rounded-xl font-semibold tap-scale"
+            disabled={saving}
+            onClick={finishVisit}
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 me-1" />}
+            {t("finishVisit")}
+            {inRoute && <ChevronRight className="h-4 w-4 ms-1 rtl:rotate-180" />}
+          </Button>
+        ) : step === "result" ? (
           <Button
             className="w-full h-12 rounded-xl font-semibold tap-scale"
             disabled={!result}
@@ -238,22 +258,12 @@ export function VisitScreen() {
               <Button
                 className="flex-[2] h-12 rounded-xl font-semibold tap-scale"
                 disabled={saving || (needsObjection(result!) && !objection)}
-                onClick={() => finish(false)}
+                onClick={finishVisit}
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 me-1" />}
                 {t("finishVisit")}
               </Button>
             </div>
-            {/* Next customer button — visible when in a route */}
-            {inRoute && (
-              <Button
-                variant="secondary"
-                className="w-full h-11 rounded-xl tap-scale font-medium"
-                onClick={() => { nextInRoute(); go("route", {}); }}
-              >
-                <ChevronRight className="h-4 w-4 me-1 rtl:rotate-180" /> {t("nextCustomer")}
-              </Button>
-            )}
           </>
         )}
       </div>
