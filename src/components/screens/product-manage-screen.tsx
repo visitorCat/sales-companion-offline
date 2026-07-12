@@ -102,7 +102,7 @@ export function ProductManageScreen() {
           })}
         </div>
       )}
-      <ProductFormDialog open={showForm} onOpenChange={setShowForm} product={editing} categories={categories} onSave={async (data) => {
+      <ProductFormDialog key={editing?.id ?? "new"} open={showForm} onOpenChange={setShowForm} product={editing} categories={categories} onSave={async (data) => {
         setSaving(true);
         try {
           const dexie = await import("@/lib/dexie-data");
