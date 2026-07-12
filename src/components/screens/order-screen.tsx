@@ -40,7 +40,7 @@ export function OrderScreen() {
   const updateCartQty = useAppStore((s) => s.updateCartQty);
   const removeCartLine = useAppStore((s) => s.removeCartLine);
   const clearCart = useAppStore((s) => s.clearCart);
-  const { customers, products, orders, prefs, promotions, addOrder, upsertCustomer, setCustomerPrefs } = useDataStore();
+  const { customers, products, orders, prefs, promotions, addOrder, upsertCustomer, setCustomerPrefs, rep } = useDataStore();
 
   const customerId = params.customerId as string;
   const customer = customers.find((c) => c.id === customerId);
@@ -204,7 +204,7 @@ export function OrderScreen() {
     const order = {
       id: tempId,
       customerId,
-      repId: "local",
+      repId: rep?.id ?? "local",
       totalCartons,
       totalAmount,
       status: "CONFIRMED" as const,

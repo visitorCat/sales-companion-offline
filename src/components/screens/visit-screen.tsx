@@ -49,7 +49,7 @@ export function VisitScreen() {
   const go = useAppStore((s) => s.go);
   const route = useAppStore((s) => s.route);
   const nextInRoute = useAppStore((s) => s.nextInRoute);
-  const { customers, addVisit, upsertCustomer } = useDataStore();
+  const { customers, addVisit, upsertCustomer, rep } = useDataStore();
 
   const customerId = params.customerId as string;
   const customer = customers.find((c) => c.id === customerId);
@@ -91,7 +91,7 @@ export function VisitScreen() {
     const visit = {
       id: tempId,
       customerId,
-      repId: "local",
+      repId: rep?.id ?? "local",
       result,
       objection: needsObjection(result) ? objection : null,
       notes: notes.trim() || null,
@@ -102,7 +102,7 @@ export function VisitScreen() {
     upsertCustomer({ ...customer, lastVisitAt: visit.createdAt });
     try {
       const { createVisit } = await import("@/lib/dexie-data");
-      const created = await createVisit({ customerId, repId: "local", result, objection: visit.objection, notes: visit.notes, durationSec: 0 });
+      const created = await createVisit({ customerId, repId: rep?.id ?? "local", result, objection: visit.objection, notes: visit.notes, durationSec: 0 });
       const ds = useDataStore.getState();
       useDataStore.setState({ visits: ds.visits.map((v) => (v.id === tempId ? created : v)) });
     } catch { /* keep local */ }
