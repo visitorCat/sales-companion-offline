@@ -22,6 +22,7 @@ import { RouteScreen } from "@/components/screens/route-screen";
 import { DeliveryScreen } from "@/components/screens/delivery-screen";
 import { ManagerScreen } from "@/components/screens/manager-screen";
 import { ProductManageScreen } from "@/components/screens/product-manage-screen";
+import { RegisterScreen } from "@/components/screens/register-screen";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Home() {
@@ -30,7 +31,10 @@ export default function Home() {
   const hydrated = useDataStore((s) => s.hydrated);
   const customers = useDataStore((s) => s.customers);
 
-  if (!unlocked) return <LockScreen />;
+  if (!unlocked) {
+    if (screen === "register") return <RegisterScreen />;
+    return <LockScreen />;
+  }
 
   // Show a branded skeleton on very first load when no local data yet
   if (!hydrated && customers.length === 0) {
