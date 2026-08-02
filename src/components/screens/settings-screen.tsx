@@ -15,8 +15,8 @@ import { Label } from "@/components/ui/label";
 import {
   Globe, Sun, Moon, Monitor, Bell, Database, Lock, LogOut,
   Download, Upload, Building2, ShieldCheck, ChevronRight, Wifi, WifiOff,
-  RefreshCw, Trash2, CloudUpload, CloudCheck, Calendar,
-  Route as RouteIcon, Map, MapPin, Plus, ChevronUp, ChevronDown, X, Check,
+  RefreshCw, Trash2, CloudUpload, CloudCheck, Calendar, Target, Pencil,
+  Route as RouteIcon, Map, MapPin, Plus, ChevronUp, ChevronDown, X, Check, Loader2,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -134,6 +134,9 @@ export function SettingsScreen() {
           </p>
         )}
       </section>
+
+      {/* Monthly Target Editor */}
+      <MonthlyTargetEditor rep={rep} />
 
       {/* Language */}
       <section className="px-4 pt-4">
@@ -1054,5 +1057,98 @@ function InlineEdit({ value, onSave, small }: { value: string; onSave: (v: strin
     >
       {value}
     </span>
+  );
+}
+
+// ---- Monthly Target Editor ----
+function MonthlyTargetEditor({ rep }: { rep: any }) {
+  const t = useT();
+  const { objective, setObjective } = useDataStore();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const currentTarget = objective?.targetCartons ?? rep?.monthlyTargetCartons ?? 0;
+
+  async function handleSave() {
+    const num = parseInt(value);
+    if (isNaN(num) || num <= 0) {
+      toast.error(t("error"));
+      return;
+    }
+    setSaving(true);
+    try {
+      const { db, uid } = await import("@/lib/db-dexie");
+      const month = new Date().toISOString().slice(0, 7);
+      // Update or create objective
+      if (objective) {
+        await db.objectives.update(objective.id, { targetCartons: num });
+        setObjective({ ...objective, targetCartons: num });
+      } else {
+        const newObj = { id: uid("obj_"), repId: rep?.id ?? "", month, targetCartons: num };
+        await db.objectives.add(newObj);
+        setObjective(newObj as any);
+      }
+      // Also update rep's monthlyTargetCartons
+      if (rep) {
+        await db.reps.update(rep.id, { monthlyTargetCartons: num });
+        useDataStore.setState({ rep: { ...rep, monthlyTargetCartons: num } });
+      }
+      toast.success(t("saved"));
+      setEditing(false);
+    } catch { toast.error(t("error")); }
+    setSaving(false);
+  }
+
+  function startEdit() {
+    setValue(String(currentTarget));
+    setEditing(true);
+  }
+
+  return (
+    <section className="px-4 pt-4">
+      <p className="text-xs font-semibold text-muted-foreground uppercase mb-2 flex items-center gap-1.5">
+        <Target className="h-3.5 w-3.5" /> {t("monthlyTarget")}
+      </p>
+      <Card className="p-4">
+        {!editing ? (
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-2xl font-bold tabular-nums text-primary">
+                {new Intl.NumberFormat("fr-DZ").format(currentTarget)} DA
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">{t("targetAmount")}</p>
+            </div>
+            <Button variant="outline" size="sm" className="h-9 tap-scale" onClick={startEdit}>
+              <Pencil className="h-4 w-4 me-1" /> {t("editTarget")}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <Label>{t("targetAmount")}</Label>
+              <Input
+                type="number"
+                className="mt-1 h-11 text-lg font-bold"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder="200000"
+                inputMode="numeric"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 h-10 tap-scale" onClick={() => setEditing(false)} disabled={saving}>
+                {t("cancel")}
+              </Button>
+              <Button className="flex-1 h-10 tap-scale" onClick={handleSave} disabled={saving || !value}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 me-1" />}
+                {t("saveTarget")}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+    </section>
   );
 }
