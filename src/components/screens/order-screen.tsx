@@ -365,8 +365,8 @@ export function OrderScreen() {
                 onClick={() => addCartLine({ productId: p.id, qty: 1, unitPrice: p.sellingPrice })}
                 className="shrink-0 w-32 p-2 rounded-xl border-2 border-amber-300/40 bg-amber-50/40 dark:bg-amber-950/10 tap-scale text-start"
               >
-                <div className="aspect-square rounded-lg bg-muted grid place-items-center mb-1">
-                  <Package className="h-6 w-6 text-muted-foreground/50" />
+                <div className="aspect-square rounded-lg bg-muted grid place-items-center mb-1 overflow-hidden">
+                  {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="h-full w-full object-cover" /> : <Package className="h-6 w-6 text-muted-foreground/50" />}
                 </div>
                 <p className="text-[11px] font-medium line-clamp-2 leading-tight min-h-[2rem]">{p.name}</p>
                 <div className="flex items-center justify-between mt-0.5">
@@ -397,24 +397,15 @@ export function OrderScreen() {
                     {qty}
                   </span>
                 )}
-                {promo && (
-                  <span className="absolute -top-2 -start-2 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center gap-0.5 z-10 shadow">
-                    <Tag className="h-2.5 w-2.5" /> {t("promotion")}
-                  </span>
-                )}
-                <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-muted to-muted/50 grid place-items-center shrink-0">
-                  <Package className="h-7 w-7 text-muted-foreground/60" />
+                <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-muted to-muted/50 grid place-items-center shrink-0 overflow-hidden">
+                  {p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="h-full w-full object-cover" /> : <Package className="h-7 w-7 text-muted-foreground/60" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium leading-tight">{p.name}</p>
                   <p className="text-[11px] text-muted-foreground">{cat?.name}</p>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="text-sm font-bold text-primary">{formatCurrency(p.sellingPrice, lang)}</span>
-                    {applied && applied.discount > 0 && (
-                      <span className="text-[10px] text-emerald-600 font-semibold">−{formatCurrency(applied.discount, lang)}</span>
-                    )}
                   </div>
-                  {promo && <p className="text-[10px] text-amber-600 font-medium mt-0.5 leading-tight">{promo.name}</p>}
                 </div>
 
                 {/* Right side: unit toggle + manual quantity input */}
@@ -482,20 +473,7 @@ export function OrderScreen() {
                   <span className="text-xs text-muted-foreground ms-1">({cart.length})</span>
                 </div>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                  {(totalDiscount > 0 || segBonusDiscount > 0) && (
-                    <span className="text-[11px] text-muted-foreground line-through">{formatCurrency(grossAmount, lang)}</span>
-                  )}
                   <span className="text-sm font-bold text-primary">{formatCurrency(totalAmount, lang)}</span>
-                  {totalDiscount > 0 && (
-                    <Badge className="bg-emerald-500/15 text-emerald-600 border-0 text-[10px]">
-                      <Tag className="h-2.5 w-2.5 me-0.5" />−{formatCurrency(totalDiscount, lang)}
-                    </Badge>
-                  )}
-                  {segBonusDiscount > 0 && segBonus && (
-                    <Badge className="bg-violet-500/15 text-violet-600 border-0 text-[10px]">
-                      <Sparkles className="h-2.5 w-2.5 me-0.5" />{segBonus.label}
-                    </Badge>
-                  )}
                 </div>
                 <button
                   onClick={() => clearCart()}

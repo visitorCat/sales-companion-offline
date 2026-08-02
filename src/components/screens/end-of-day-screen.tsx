@@ -94,8 +94,8 @@ export function EndOfDayScreen() {
           <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10" />
           <Flag className="h-8 w-8 mx-auto mb-2 opacity-90" />
           <p className="text-sm opacity-90">{t("endOfDayTitle")}</p>
-          <p className="text-4xl font-bold mt-1 tabular-nums">{formatCartons(stats.todayCartons)}</p>
-          <p className="text-sm opacity-80">{t("cartonsSold")}</p>
+          <p className="text-4xl font-bold mt-1 tabular-nums">{formatCurrency(stats.todayAmount, lang)}</p>
+          <p className="text-sm opacity-80">{t("amount")}</p>
           <div className="flex justify-center gap-6 mt-4">
             <div>
               <p className="text-2xl font-bold tabular-nums">{dayOrders.length}</p>
@@ -123,14 +123,14 @@ export function EndOfDayScreen() {
             <Badge className="bg-primary/10 text-primary">{stats.completion}%</Badge>
           </div>
           <div className="flex items-end gap-2 mb-2">
-            <span className="text-2xl font-bold tabular-nums">{formatCartons(stats.monthCartons)}</span>
-            <span className="text-sm text-muted-foreground mb-0.5">/ {stats.target} {t("cartonsShort")}</span>
+            <span className="text-2xl font-bold tabular-nums">{formatCurrency(stats.monthAmount, lang)}</span>
+            <span className="text-sm text-muted-foreground mb-0.5">/ {formatCurrency(stats.target, lang)}</span>
           </div>
           <div className="h-2.5 rounded-full bg-muted overflow-hidden">
             <div className="h-full bg-primary rounded-full" style={{ width: `${stats.completion}%` }} />
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            {t("remainingGoal")}: <b className="font-semibold">{formatCartons(stats.remainingCartons)}</b> {t("cartonsShort")} • {t("avgNeededPerDay")}: {formatCartons(stats.avgNeededPerDay)}
+            {t("remainingGoal")}: <b className="font-semibold">{formatCurrency(stats.remainingAmount, lang)}</b> • {t("avgNeededPerDay")}: {formatCurrency(stats.avgNeededPerDay, lang)}
           </p>
         </Card>
       </section>
@@ -241,12 +241,12 @@ function DailyOrdersExport() {
         return;
       }
 
-      // 3 columns: Customer Name, Product Name, Quantity
-      // AGGREGATED: quantities summed per customer+product (no duplicates)
+      // 4 columns: Customer Name, Product Name, Quantity, Price
+      // AGGREGATED: quantities and prices summed per customer+product (no duplicates)
       const rows: string[][] = [];
-      rows.push(["Customer Name", "Product Name", "Quantity"]);
+      rows.push(["Customer Name", "Product Name", "Quantity", "Price"]);
 
-      const aggregated: Record<string, { name: string; products: Record<string, number> }> = {};
+      const aggregated: Record<string, { name: string; products: Record<string, { qty: number; price: number }> }> = {};
       const customerOrder: string[] = [];
 
       for (const o of dayOrders) {
@@ -263,7 +263,12 @@ function DailyOrdersExport() {
           for (const item of o.items) {
             const product = products.find(p => p.id === item.productId);
             const pName = product?.name ?? "—";
-            aggregated[cKey].products[pName] = (aggregated[cKey].products[pName] ?? 0) + item.qty;
+            const lineTotal = item.qty * item.unitPrice;
+            if (!aggregated[cKey].products[pName]) {
+              aggregated[cKey].products[pName] = { qty: 0, price: 0 };
+            }
+            aggregated[cKey].products[pName].qty += item.qty;
+            aggregated[cKey].products[pName].price += lineTotal;
           }
         }
       }
@@ -272,13 +277,14 @@ function DailyOrdersExport() {
         const c = aggregated[cKey];
         const productNames = Object.keys(c.products);
         if (productNames.length === 0) {
-          rows.push([c.name, "—", "0"]);
+          rows.push([c.name, "—", "0", "0"]);
         } else {
           productNames.forEach((pName, i) => {
             rows.push([
               i === 0 ? c.name : "",
               pName,
-              String(c.products[pName]),
+              String(c.products[pName].qty),
+              String(c.products[pName].price),
             ]);
           });
         }

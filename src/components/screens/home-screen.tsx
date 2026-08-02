@@ -120,14 +120,13 @@ export function HomeScreen() {
                   <span className="text-sm font-medium">{t("monthlyTarget")}</span>
                 </div>
                 <span className="text-2xl font-bold tabular-nums">
-                  {stats.target}
-                  <span className="text-sm font-normal opacity-80 ms-1">{t("cartonsShort")}</span>
+                  {formatCurrency(stats.target, lang)}
                 </span>
               </div>
 
               <div className="flex items-end gap-2 mb-2">
-                <span className="text-4xl font-bold tabular-nums">{formatCartons(stats.monthCartons)}</span>
-                <span className="text-sm opacity-80 mb-1">/ {stats.target} {t("cartonsShort")}</span>
+                <span className="text-4xl font-bold tabular-nums">{formatCurrency(stats.monthAmount, lang)}</span>
+                <span className="text-sm opacity-80 mb-1">/ {formatCurrency(stats.target, lang)}</span>
                 <span className="ms-auto text-sm font-semibold bg-white/20 rounded-full px-2 py-0.5">
                   {stats.completion}%
                 </span>
@@ -142,14 +141,14 @@ export function HomeScreen() {
               </div>
 
               <div className="grid grid-cols-3 gap-2 mt-4 text-center">
-                <Stat label={t("todayCartons")} value={formatCartons(stats.todayCartons)} />
-                <Stat label={t("weeklyCartons")} value={formatCartons(stats.weekCartons)} />
-                <Stat label={t("remainingCartons")} value={formatCartons(stats.remainingCartons)} />
+                <Stat label={t("todayCartons")} value={formatCurrency(stats.todayAmount, lang)} />
+                <Stat label={t("weeklyCartons")} value={formatCurrency(stats.weekAmount, lang)} />
+                <Stat label={t("remainingCartons")} value={formatCurrency(stats.remainingAmount, lang)} />
               </div>
               <div className="flex items-center justify-between mt-3 text-xs opacity-90">
                 <span className="flex items-center gap-1">
                   <TrendingUp className="h-3.5 w-3.5" />
-                  {t("avgNeededPerDay")}: <b className="font-semibold">{formatCartons(stats.avgNeededPerDay)}</b> {t("cartonsShort")}/j
+                  {t("avgNeededPerDay")}: <b className="font-semibold">{formatCurrency(stats.avgNeededPerDay, lang)}</b>/j
                 </span>
                 <span>{stats.daysLeftInMonth}j</span>
               </div>

@@ -162,8 +162,12 @@ export function ProductsScreen() {
             const AvailIcon = avail.icon;
             return (
               <Card key={p.id} className={cn("p-3 flex flex-col", p.availability === "OUT" && "opacity-60")}>
-                <div className="aspect-square rounded-xl bg-gradient-to-br from-muted to-muted/50 grid place-items-center mb-2 relative">
-                  <Package className="h-8 w-8 text-muted-foreground/60" />
+                <div className="aspect-square rounded-xl bg-gradient-to-br from-muted to-muted/50 grid place-items-center mb-2 relative overflow-hidden">
+                  {p.imageUrl ? (
+                    <img src={p.imageUrl} alt={p.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <Package className="h-8 w-8 text-muted-foreground/60" />
+                  )}
                   {p.isFavorite && (
                     <Star className="absolute top-1.5 end-1.5 h-4 w-4 fill-amber-400 text-amber-400" />
                   )}

@@ -38,8 +38,8 @@ export async function seedDatabase(): Promise<void> {
   // Only seed if NO rep exists yet (first run). Never seed products — users create/import their own.
   if (await db.reps.count() > 0) return;
   const repId = uid("rep_");
-  await db.reps.add({ id: repId, name: "Karim Benali", email: "rep@field.app", password: "1234", phone: "+213661234567", pinHash: await hashPin("1234"), monthlyTargetCartons: 100, createdAt: new Date().toISOString() });
-  await db.objectives.add({ id: uid("obj_"), repId, month: new Date().toISOString().slice(0,7), targetCartons: 100 });
+  await db.reps.add({ id: repId, name: "Karim Benali", email: "rep@field.app", password: "1234", phone: "+213661234567", pinHash: await hashPin("1234"), monthlyTargetCartons: 200000, createdAt: new Date().toISOString() });
+  await db.objectives.add({ id: uid("obj_"), repId, month: new Date().toISOString().slice(0,7), targetCartons: 200000 });
   for (let si = 0; si < SECTORS.length; si++) { const s = SECTORS[si]; const sid = uid("sec_"); await db.sectors.add({ id: sid, code: s.code, name: s.name, order: si }); for (let ai = 0; ai < s.areas.length; ai++) await db.areas.add({ id: uid("area_"), sectorId: sid, name: s.areas[ai], order: ai }); }
   const cats = ["Chocolate","Jam","Water","Harissa","Oil","Ketchup","Margarine","Mayonnaise","Honey","Smen","Sugar","Others"]; const cm: Record<string,string> = {};
   for (let i = 0; i < cats.length; i++) { const cid = uid("cat_"); cm[cats[i]] = cid; await db.categories.add({ id: cid, name: cats[i], order: i }); }

@@ -5,8 +5,11 @@ export interface ComputedStats {
   todayCartons: number;
   weekCartons: number;
   monthCartons: number;
+  todayAmount: number;
+  weekAmount: number;
+  monthAmount: number;
   target: number;
-  remainingCartons: number;
+  remainingAmount: number;
   avgNeededPerDay: number;
   completion: number;
   daysLeftInMonth: number;
@@ -47,8 +50,13 @@ export function computeStats(
   const weekCartons = weekOrders.reduce((s, o) => s + o.totalCartons, 0);
   const monthCartons = monthOrders.reduce((s, o) => s + o.totalCartons, 0);
 
-  const target = objective?.targetCartons ?? repTarget;
-  const remainingCartons = Math.max(0, target - monthCartons);
+  // Monthly target is now in DZD (Algerian Dinar) — the rep's monthlyTargetCartons field stores the DZD target
+  const todayAmount = dayOrders.reduce((s, o) => s + o.totalAmount, 0);
+  const weekAmount = weekOrders.reduce((s, o) => s + o.totalAmount, 0);
+  const monthAmount = monthOrders.reduce((s, o) => s + o.totalAmount, 0);
+
+  const target = objective?.targetCartons ?? repTarget; // now in DZD
+  const remainingAmount = Math.max(0, target - monthAmount);
 
   const visitedTodayIds = new Set(dayVisits.map((v) => v.customerId));
   const orderedTodayIds = new Set(dayOrders.map((o) => o.customerId));
@@ -60,8 +68,8 @@ export function computeStats(
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     return Math.max(1, end - now.getDate() + 1);
   })();
-  const avgNeededPerDay = remainingCartons / daysLeftInMonth;
-  const completion = target > 0 ? Math.min(100, Math.round((monthCartons / target) * 100)) : 0;
+  const avgNeededPerDay = remainingAmount / daysLeftInMonth;
+  const completion = target > 0 ? Math.min(100, Math.round((monthAmount / target) * 100)) : 0;
   const successRate = dayVisits.length > 0
     ? Math.round((dayVisits.filter((v) => v.result === "ORDER_CREATED").length / dayVisits.length) * 100)
     : 0;
@@ -70,9 +78,12 @@ export function computeStats(
     todayCartons: Math.round(todayCartons * 10) / 10,
     weekCartons: Math.round(weekCartons * 10) / 10,
     monthCartons: Math.round(monthCartons * 10) / 10,
+    todayAmount: Math.round(todayAmount),
+    weekAmount: Math.round(weekAmount),
+    monthAmount: Math.round(monthAmount),
     target,
-    remainingCartons: Math.round(remainingCartons * 10) / 10,
-    avgNeededPerDay: Math.round(avgNeededPerDay * 10) / 10,
+    remainingAmount: Math.round(remainingAmount),
+    avgNeededPerDay: Math.round(avgNeededPerDay),
     completion,
     daysLeftInMonth,
     visitedTodayIds,

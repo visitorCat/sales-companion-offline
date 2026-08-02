@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Route as RouteIcon, Check, SkipForward, Clock, Navigation,
   ChevronRight, Flag, Play, MapPin, X, Sparkles, Calendar, ChevronLeft,
-  ShoppingBag, Lock, RefreshCw,
+  ShoppingBag, Lock, RefreshCw, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,7 @@ export function RouteScreen() {
   const { customers, areas, sectors, orders, visits, objective, rep, routePlans, addVisit, upsertCustomer } = useDataStore();
 
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
+  const [customerSearch, setCustomerSearch] = useState("");
 
   // Quick visit: save a CLOSED visit and go to next customer
   async function quickVisitNoOrder(customerId: string) {
@@ -236,6 +237,60 @@ export function RouteScreen() {
               )}
             </>
           )}
+
+          {/* Search customer directly — always available */}
+          <Card className="p-3">
+            <p className="text-sm font-semibold mb-2 flex items-center gap-1.5">
+              <Search className="h-4 w-4 text-primary" /> {t("search")}
+            </p>
+            <div className="relative mb-2">
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+                placeholder={t("searchPlaceholder")}
+                className="w-full h-11 ps-9 pe-3 rounded-xl bg-muted/60 border-0 text-sm focus:ring-2 focus:ring-primary outline-none"
+              />
+            </div>
+            {customerSearch.trim() && (
+              <div className="space-y-1.5 max-h-60 overflow-y-auto scroll-thin">
+                {customers
+                  .filter((c) => c.active)
+                  .filter((c) => {
+                    const q = customerSearch.toLowerCase();
+                    return c.shopName.toLowerCase().includes(q) || c.owner.toLowerCase().includes(q) || c.phone.includes(q);
+                  })
+                  .slice(0, 10)
+                  .map((c) => {
+                    const area = areas.find((a) => a.id === c.areaId);
+                    const sector = sectors.find((s) => s.id === c.sectorId);
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => { setCustomerSearch(""); startWithSelected([c.id]); }}
+                        className="w-full flex items-center gap-2 p-2 rounded-xl bg-muted/40 hover:bg-primary/5 transition-colors text-start tap-scale"
+                      >
+                        <span className="h-7 w-7 rounded-full bg-primary/10 text-primary text-xs font-bold grid place-items-center shrink-0">
+                          {c.shopName[0]?.toUpperCase()}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{c.shopName}</p>
+                          <p className="text-xs text-muted-foreground truncate">{sector?.code} • {area?.name}</p>
+                        </div>
+                        <Play className="h-4 w-4 text-primary shrink-0" />
+                      </button>
+                    );
+                  })
+                }
+                {customers.filter((c) => c.active).filter((c) => {
+                  const q = customerSearch.toLowerCase();
+                  return c.shopName.toLowerCase().includes(q) || c.owner.toLowerCase().includes(q) || c.phone.includes(q);
+                }).length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-3">{t("noResults")}</p>
+                )}
+              </div>
+            )}
+          </Card>
         </div>
       ) : (
         // In progress

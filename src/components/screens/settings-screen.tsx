@@ -394,13 +394,13 @@ function ExportByPeriodSection() {
         return;
       }
 
-      // 3 columns: Customer Name, Product Name, Quantity
-      // AGGREGATED: quantities are summed per customer+product (no duplicates)
+      // 4 columns: Customer Name, Product Name, Quantity, Price
+      // AGGREGATED: quantities and prices summed per customer+product (no duplicates)
       const rows: string[][] = [];
-      rows.push(["Customer Name", "Product Name", "Quantity"]);
+      rows.push(["Customer Name", "Product Name", "Quantity", "Price"]);
 
-      // Aggregate: customerKey -> productName -> totalQty
-      const aggregated: Record<string, { name: string; products: Record<string, number> }> = {};
+      // Aggregate: customerKey -> productName -> { qty, price }
+      const aggregated: Record<string, { name: string; products: Record<string, { qty: number; price: number }> }> = {};
       const customerOrder: string[] = [];
 
       for (const o of periodOrders) {
@@ -417,8 +417,12 @@ function ExportByPeriodSection() {
           for (const item of o.items) {
             const product = products.find(p => p.id === item.productId);
             const pName = product?.name ?? "—";
-            // Sum quantities for same customer+product
-            aggregated[cKey].products[pName] = (aggregated[cKey].products[pName] ?? 0) + item.qty;
+            const lineTotal = item.qty * item.unitPrice;
+            if (!aggregated[cKey].products[pName]) {
+              aggregated[cKey].products[pName] = { qty: 0, price: 0 };
+            }
+            aggregated[cKey].products[pName].qty += item.qty;
+            aggregated[cKey].products[pName].price += lineTotal;
           }
         }
       }
@@ -428,13 +432,14 @@ function ExportByPeriodSection() {
         const c = aggregated[cKey];
         const productNames = Object.keys(c.products);
         if (productNames.length === 0) {
-          rows.push([c.name, "—", "0"]);
+          rows.push([c.name, "—", "0", "0"]);
         } else {
           productNames.forEach((pName, i) => {
             rows.push([
               i === 0 ? c.name : "",
               pName,
-              String(c.products[pName]),
+              String(c.products[pName].qty),
+              String(c.products[pName].price),
             ]);
           });
         }
